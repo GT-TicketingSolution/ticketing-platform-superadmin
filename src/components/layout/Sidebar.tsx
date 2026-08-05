@@ -5,42 +5,25 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
-  Ticket,
-  BookOpen,
-  CircleDollarSign,
-  FileText,
-  Boxes,
-  Cctv,
-  Landmark,
-  UserRound,
-  ClipboardList,
-  BarChart2,
-  Users,
-  Settings,
-  CloudUpload,
+  LayoutDashboard,
+  Shield,
+  Clock,
+  RefreshCw,
+  KeyRound,
   LogOut,
   AlignRight,
   X,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
+import ChangePasswordModal from "@/components/modals/ChangePasswordModal";
 
-// ─── Nav items ───────────────────────────────────────────────────────────────
+// ─── Nav items for Super Admin ───────────────────────────────────────────────
 const NAV_ITEMS = [
-  { label: "Ticket Booking", href: "/ticket-booking", icon: Ticket },
-  { label: "Bookings", href: "/bookings", icon: BookOpen },
-  { label: "Transactions", href: "/transactions", icon: CircleDollarSign },
-  { label: "Invoices", href: "/invoices", icon: FileText },
-  { label: "Inventory / Capacity", href: "/inventory", icon: Boxes },
-  { label: "CCTV Monitoring", href: "/cctv-monitoring", icon: Cctv },
-  { label: "Attraction Management", href: "/attraction-management", icon: Landmark },
-  { label: "Customer Management", href: "/customer-management", icon: UserRound },
-  { label: "Complimentary Passes", href: "/complimentary-passes", icon: ClipboardList },
-  { label: "Reports", href: "/reports", icon: BarChart2 },
-  { label: "User Management", href: "/user-management", icon: Users },
-  { label: "Settings", href: "/settings", icon: Settings },
-  { label: "Backup", href: "/backup", icon: CloudUpload },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Admin", href: "/admin", icon: Shield },
+  { label: "Pending Requests", href: "/pending-requests", icon: Clock },
+  { label: "Renewal", href: "/renewal", icon: RefreshCw },
 ];
-
 
 function PortalTooltip({
   label,
@@ -90,7 +73,6 @@ function PortalTooltip({
         boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
       }}
     >
-      {/* Left arrow */}
       <span
         style={{
           position: "absolute",
@@ -108,9 +90,6 @@ function PortalTooltip({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NavItem with portal tooltip
-// ─────────────────────────────────────────────────────────────────────────────
 function NavItem({
   label,
   href,
@@ -131,7 +110,7 @@ function NavItem({
     <>
       <Link
         href={href}
-        style={{ textDecoration: "none", display: "block", padding: "3px 10px" }}
+        style={{ textDecoration: "none", display: "block", padding: "4px 12px" }}
       >
         <div
           ref={anchorRef as React.RefObject<HTMLDivElement>}
@@ -141,7 +120,7 @@ function NavItem({
             display: "flex",
             alignItems: "center",
             gap: isIconOnly ? 0 : "12px",
-            padding: isIconOnly ? "9px 0" : "8px 10px",
+            padding: isIconOnly ? "10px 0" : "10px 14px",
             borderRadius: "8px",
             background: isActive
               ? colors.sidebar.activeBg
@@ -166,7 +145,7 @@ function NavItem({
             <Icon
               size={18}
               color={isActive ? colors.sidebar.activeIconColor : colors.sidebar.iconColor}
-              strokeWidth={isActive ? 2 : 1.5}
+              strokeWidth={isActive ? 2.2 : 1.6}
             />
           </span>
 
@@ -190,7 +169,6 @@ function NavItem({
         </div>
       </Link>
 
-      {/* Tooltip renders in document.body via portal – never clipped */}
       {isIconOnly && (
         <PortalTooltip
           label={label}
@@ -203,32 +181,51 @@ function NavItem({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LogoutItem with portal tooltip
+// Bottom Sidebar Actions (Change Password & Logout)
 // ─────────────────────────────────────────────────────────────────────────────
-function LogoutItem({ isIconOnly }: { isIconOnly: boolean }) {
+function BottomActions({
+  isIconOnly,
+  onChangePassword,
+}: {
+  isIconOnly: boolean;
+  onChangePassword: () => void;
+}) {
   const router = useRouter();
-  const [hovered, setHovered] = useState(false);
-  const anchorRef = useRef<HTMLDivElement>(null);
+  const [passHovered, setPassHovered] = useState(false);
+  const [logoutHovered, setLogoutHovered] = useState(false);
+
+  const passRef = useRef<HTMLDivElement>(null);
+  const logoutRef = useRef<HTMLDivElement>(null);
 
   const handleLogout = () => {
     router.push("/login");
   };
 
   return (
-    <div style={{ padding: "8px 10px 24px 10px", flexShrink: 0 }}>
+    <div
+      style={{
+        padding: "12px",
+        borderTop: `1px solid ${colors.sidebar.divider}`,
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        flexShrink: 0,
+      }}
+    >
+      {/* Change Password */}
       <div
-        ref={anchorRef}
-        onClick={handleLogout}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        ref={passRef}
+        onClick={onChangePassword}
+        onMouseEnter={() => setPassHovered(true)}
+        onMouseLeave={() => setPassHovered(false)}
         style={{
           display: "flex",
           alignItems: "center",
           gap: isIconOnly ? 0 : "12px",
-          padding: isIconOnly ? "9px 0" : "8px 10px",
+          padding: isIconOnly ? "10px 0" : "10px 14px",
           borderRadius: "8px",
           cursor: "pointer",
-          background: hovered ? colors.sidebar.hoverBg : "transparent",
+          background: passHovered ? colors.sidebar.hoverBg : "transparent",
           transition: "background 0.18s ease",
           justifyContent: isIconOnly ? "center" : "flex-start",
         }}
@@ -238,12 +235,12 @@ function LogoutItem({ isIconOnly }: { isIconOnly: boolean }) {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            width: "22px",
-            height: "22px",
+            width: "20px",
+            height: "20px",
             flexShrink: 0,
           }}
         >
-          <LogOut size={20} color={colors.sidebar.iconColor} strokeWidth={1.5} />
+          <KeyRound size={18} color={colors.sidebar.iconColor} strokeWidth={1.6} />
         </span>
         {!isIconOnly && (
           <span
@@ -251,8 +248,61 @@ function LogoutItem({ isIconOnly }: { isIconOnly: boolean }) {
               fontFamily: typography.fontFamily.sans,
               fontWeight: typography.fontWeight.medium,
               fontSize: "14px",
-              lineHeight: "20px",
               color: colors.sidebar.itemText,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Change Password
+          </span>
+        )}
+      </div>
+
+      {isIconOnly && (
+        <PortalTooltip
+          label="Change Password"
+          anchorRef={passRef as React.RefObject<HTMLElement | null>}
+          visible={passHovered}
+        />
+      )}
+
+      {/* Logout */}
+      <div
+        ref={logoutRef}
+        onClick={handleLogout}
+        onMouseEnter={() => setLogoutHovered(true)}
+        onMouseLeave={() => setLogoutHovered(false)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: isIconOnly ? 0 : "12px",
+          padding: isIconOnly ? "10px 0" : "10px 14px",
+          borderRadius: "8px",
+          cursor: "pointer",
+          background: logoutHovered ? "rgba(239, 68, 68, 0.2)" : "transparent",
+          transition: "background 0.18s ease",
+          justifyContent: isIconOnly ? "center" : "flex-start",
+        }}
+      >
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "20px",
+            height: "20px",
+            flexShrink: 0,
+          }}
+        >
+          <LogOut size={18} color="#EF4444" strokeWidth={1.8} />
+        </span>
+        {!isIconOnly && (
+          <span
+            style={{
+              fontFamily: typography.fontFamily.sans,
+              fontWeight: typography.fontWeight.medium,
+              fontSize: "14px",
+              color: "#EF4444",
+              whiteSpace: "nowrap",
             }}
           >
             Logout
@@ -263,8 +313,8 @@ function LogoutItem({ isIconOnly }: { isIconOnly: boolean }) {
       {isIconOnly && (
         <PortalTooltip
           label="Logout"
-          anchorRef={anchorRef as React.RefObject<HTMLElement | null>}
-          visible={hovered}
+          anchorRef={logoutRef as React.RefObject<HTMLElement | null>}
+          visible={logoutHovered}
         />
       )}
     </div>
@@ -272,7 +322,7 @@ function LogoutItem({ isIconOnly }: { isIconOnly: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sidebar
+// Sidebar Main Component
 // ─────────────────────────────────────────────────────────────────────────────
 interface SidebarProps {
   collapsed: boolean;
@@ -290,8 +340,8 @@ export default function Sidebar({
   onDrawerClose,
 }: SidebarProps) {
   const pathname = usePathname();
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
-  // Close drawer on route change
   const closeDrawer = useCallback(onDrawerClose, [onDrawerClose]);
   useEffect(() => {
     if (isMobile && drawerOpen) closeDrawer();
@@ -306,41 +356,38 @@ export default function Sidebar({
 
   const sidebarStyle: React.CSSProperties = isMobile
     ? {
-      width: `${colors.sidebar.width}px`,
-      minWidth: `${colors.sidebar.width}px`,
-      height: "100vh",
-      background: colors.sidebar.bg,
-      display: "flex",
-      flexDirection: "column",
-      position: "fixed",
-      left: drawerOpen ? 0 : `-${colors.sidebar.width}px`,
-      top: 0,
-      zIndex: 60,
-      overflowY: "auto",
-      overflowX: "hidden",
-      transition: "left 0.28s cubic-bezier(0.4,0,0.2,1)",
-    }
+        width: `${colors.sidebar.width}px`,
+        minWidth: `${colors.sidebar.width}px`,
+        height: "100vh",
+        background: colors.sidebar.bg,
+        display: "flex",
+        flexDirection: "column",
+        position: "fixed",
+        left: drawerOpen ? 0 : `-${colors.sidebar.width}px`,
+        top: 0,
+        zIndex: 60,
+        overflowY: "auto",
+        overflowX: "hidden",
+        transition: "left 0.28s cubic-bezier(0.4,0,0.2,1)",
+      }
     : {
-      width: `${desktopWidth}px`,
-      minWidth: `${desktopWidth}px`,
-      height: "100vh",
-      background: colors.sidebar.bg,
-      display: "flex",
-      flexDirection: "column",
-      position: "fixed",
-      left: 0,
-      top: 0,
-      zIndex: 50,
-      // Do NOT set overflowX:hidden here so tooltips are visible,
-      // but we clip only when expanded to prevent label overflow
-      overflowY: "auto",
-      overflowX: isIconOnly ? "visible" : "hidden",
-      transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
-    };
+        width: `${desktopWidth}px`,
+        minWidth: `${desktopWidth}px`,
+        height: "100vh",
+        background: colors.sidebar.bg,
+        display: "flex",
+        flexDirection: "column",
+        position: "fixed",
+        left: 0,
+        top: 0,
+        zIndex: 50,
+        overflowY: "auto",
+        overflowX: isIconOnly ? "visible" : "hidden",
+        transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
+      };
 
   return (
     <>
-      {/* Mobile backdrop */}
       {isMobile && drawerOpen && (
         <div
           onClick={onDrawerClose}
@@ -355,19 +402,50 @@ export default function Sidebar({
       )}
 
       <aside style={sidebarStyle}>
-        {/* ── Top bar ── */}
+        {/* Top bar */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: isIconOnly ? "center" : "flex-end",
-            padding: "14px",
+            justifyContent: isIconOnly ? "center" : "space-between",
+            padding: "16px 18px",
             minHeight: "76px",
             flexShrink: 0,
           }}
         >
+          {!isIconOnly && (
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{
+                  width: "34px",
+                  height: "34px",
+                  borderRadius: "8px",
+                  background: colors.sidebar.activeBg,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: colors.sidebar.activeText,
+                  fontWeight: "bold",
+                  fontSize: "16px",
+                }}
+              >
+                SA
+              </div>
+              <span
+                style={{
+                  fontFamily: typography.fontFamily.sans,
+                  fontWeight: typography.fontWeight.bold,
+                  fontSize: "16px",
+                  color: "#FFFFFF",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Super Admin
+              </span>
+            </div>
+          )}
+
           {isMobile ? (
-            // Mobile: X close button
             <button
               onClick={onDrawerClose}
               aria-label="Close sidebar"
@@ -380,14 +458,12 @@ export default function Sidebar({
                 alignItems: "center",
                 justifyContent: "center",
                 borderRadius: "6px",
-                marginLeft: "auto",
               }}
               className="sidebar-toggle-btn"
             >
               <X size={22} color={colors.sidebar.iconColor} />
             </button>
           ) : (
-            // Desktop: collapse toggle
             <button
               onClick={onDesktopToggle}
               aria-label="Toggle sidebar"
@@ -408,7 +484,6 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* ── Divider ── */}
         <div
           style={{
             height: "1px",
@@ -417,11 +492,14 @@ export default function Sidebar({
           }}
         />
 
-        {/* ── Navigation ── */}
-        <nav style={{ flex: 1, padding: "8px 0" }}>
+        {/* Navigation items */}
+        <nav style={{ flex: 1, padding: "12px 0" }}>
           {NAV_ITEMS.map((item) => {
             const isActive =
-              pathname === item.href || pathname.startsWith(item.href + "/");
+              pathname === item.href ||
+              pathname.startsWith(item.href + "/") ||
+              (item.href === "/dashboard" && pathname === "/");
+
             return (
               <NavItem
                 key={item.href}
@@ -435,10 +513,12 @@ export default function Sidebar({
           })}
         </nav>
 
-        {/* ── Logout ── */}
-        <LogoutItem isIconOnly={isIconOnly} />
+        {/* Bottom Actions */}
+        <BottomActions
+          isIconOnly={isIconOnly}
+          onChangePassword={() => setChangePasswordOpen(true)}
+        />
 
-        {/* ── Scoped styles ── */}
         <style>{`
           .sidebar-toggle-btn:hover {
             background: ${colors.sidebar.hoverBg} !important;
@@ -451,6 +531,12 @@ export default function Sidebar({
           }
         `}</style>
       </aside>
+
+      {/* Change Password Dialog */}
+      <ChangePasswordModal
+        isOpen={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+      />
     </>
   );
 }

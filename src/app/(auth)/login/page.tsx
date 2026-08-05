@@ -4,18 +4,39 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Mail, Lock, Eye, EyeOff, Globe, ChevronDown } from "lucide-react";
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Globe,
+  ChevronDown,
+  ShieldCheck,
+  ArrowLeft,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 import { colors, typography } from "@/lib/theme";
-import { loginSchema, LoginFormData, RoleType } from "./schema";
+import {
+  loginSchema,
+  LoginFormData,
+  forgotPasswordSchema,
+  ForgotPasswordFormData,
+} from "./schema";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [selectedRole, setSelectedRole] = useState<RoleType>("Admin");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedLang, setSelectedLang] = useState("English");
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
 
+  // Forgot password flow state
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+
+  // Login form
   const {
     register,
     handleSubmit,
@@ -28,10 +49,35 @@ export default function LoginPage() {
     },
   });
 
+  // Forgot password form
+  const {
+    register: registerForgot,
+    handleSubmit: handleForgotSubmit,
+    formState: { errors: forgotErrors },
+    reset: resetForgot,
+  } = useForm<ForgotPasswordFormData>({
+    resolver: zodResolver(forgotPasswordSchema),
+    defaultValues: { email: "" },
+  });
+
   const onSubmit = async (data: LoginFormData) => {
     setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    router.push("/ticket-booking");
+    // Simulate API authentication
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    router.push("/dashboard");
+  };
+
+  const onForgotSubmit = async (data: ForgotPasswordFormData) => {
+    setForgotSubmitting(true);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    setForgotSubmitting(false);
+    setForgotSuccess(true);
+  };
+
+  const handleBackToLogin = () => {
+    setShowForgotPassword(false);
+    setForgotSuccess(false);
+    resetForgot();
   };
 
   return (
@@ -51,7 +97,7 @@ export default function LoginPage() {
         padding: "64px 16px 24px 16px",
       }}
     >
-      {/* ── Background Image Layer (Natural image with subtle blur) ── */}
+      {/* Background Image Layer */}
       <div
         style={{
           position: "absolute",
@@ -64,7 +110,7 @@ export default function LoginPage() {
         }}
       />
 
-      {/* ── Top-Right Language Picker Header Bar ── */}
+      {/* Top Bar: Language Picker */}
       <div
         style={{
           position: "absolute",
@@ -111,7 +157,6 @@ export default function LoginPage() {
             />
           </button>
 
-          {/* Language Dropdown */}
           {langDropdownOpen && (
             <div
               style={{
@@ -156,34 +201,33 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* ── Main Login Container ── */}
+      {/* Main Card */}
       <main
         style={{
           position: "relative",
           zIndex: 10,
           width: "100%",
-          maxWidth: "450px",
+          maxWidth: "440px",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           boxSizing: "border-box",
         }}
       >
-        {/* ── Card ── */}
         <div
           style={{
             width: "100%",
             background: colors.login.cardBg,
             borderRadius: "16px",
-            boxShadow: "0 8px 30px rgba(1, 27, 47, 0.12)",
-            padding: "28px 28px 24px 28px",
+            boxShadow: "0 8px 30px rgba(1, 27, 47, 0.14)",
+            padding: "32px 28px 28px 28px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             boxSizing: "border-box",
           }}
         >
-          {/* ── Logo / Avatar Circle (Ellipse 1) ── */}
+          {/* Logo Circle */}
           <div
             style={{
               width: "72px",
@@ -194,338 +238,483 @@ export default function LoginPage() {
               alignItems: "center",
               justifyContent: "center",
               marginBottom: "16px",
-              boxShadow: "0 4px 12px rgba(0, 42, 69, 0.2)",
+              boxShadow: "0 4px 12px rgba(0, 42, 69, 0.22)",
               flexShrink: 0,
+              border: `3px solid ${colors.brand.primary}`,
             }}
           >
-            {/* Solid white user silhouette icon */}
-            <svg
-              width="36"
-              height="36"
-              viewBox="0 0 24 24"
-              fill={colors.text.white}
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path d="M12 12C14.7614 12 17 9.76142 17 7C17 4.23858 14.7614 2 12 2C9.23858 2 7 4.23858 7 7C7 9.76142 9.23858 12 12 12Z" />
-              <path d="M12 14C7.58172 14 4 16.6863 4 20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20C20 16.6863 16.4183 14 12 14Z" />
-            </svg>
+            <ShieldCheck size={36} color={colors.brand.primary} strokeWidth={1.8} />
           </div>
 
-          {/* ── Welcome Back Heading ── */}
-          <h1
-            style={{
-              fontFamily: typography.fontFamily.sans,
-              fontWeight: typography.fontWeight.bold,
-              fontSize: "24px",
-              lineHeight: "30px",
-              color: colors.login.title,
-              margin: "0 0 6px 0",
-              textAlign: "center",
-            }}
-          >
-            Welcome Back!
-          </h1>
+          {/* ─── LOGIN FORM ─────────────────────────────────────────────────── */}
+          {!showForgotPassword ? (
+            <>
+              <h1
+                style={{
+                  fontFamily: typography.fontFamily.sans,
+                  fontWeight: typography.fontWeight.bold,
+                  fontSize: "24px",
+                  lineHeight: "30px",
+                  color: colors.login.title,
+                  margin: "0 0 6px 0",
+                  textAlign: "center",
+                }}
+              >
+                Super Admin Portal
+              </h1>
 
-          {/* ── Subtitle ── */}
-          <p
-            style={{
-              fontFamily: typography.fontFamily.sans,
-              fontWeight: typography.fontWeight.normal,
-              fontSize: "14px",
-              lineHeight: "19px",
-              color: colors.login.subtitle,
-              margin: "0 0 20px 0",
-              textAlign: "center",
-              maxWidth: "320px",
-            }}
-          >
-            Login to continue managing tickets, bookings and visitors
-          </p>
+              <p
+                style={{
+                  fontFamily: typography.fontFamily.sans,
+                  fontWeight: typography.fontWeight.normal,
+                  fontSize: "14px",
+                  lineHeight: "20px",
+                  color: colors.login.subtitle,
+                  margin: "0 0 24px 0",
+                  textAlign: "center",
+                  maxWidth: "320px",
+                }}
+              >
+                Sign in to manage administrators, renewals, and platform-wide settings
+              </p>
 
-          {/* ── Role Selector Tabs (Component 4) ── */}
-          <div
-            style={{
-              width: "100%",
-              height: "40px",
-              background: colors.login.roleContainerBg,
-              border: `1px solid ${colors.login.roleBorder}`,
-              borderRadius: "8px",
-              display: "flex",
-              padding: "3px",
-              gap: "3px",
-              boxSizing: "border-box",
-              marginBottom: "18px",
-            }}
-          >
-            {(["Admin", "Manager", "Staff"] as RoleType[]).map((role) => {
-              const isActive = selectedRole === role;
-              return (
+              <form
+                onSubmit={handleSubmit(onSubmit)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "16px",
+                }}
+              >
+                {/* Email/Username Field */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label
+                    htmlFor="emailOrUsername"
+                    style={{
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.medium,
+                      fontSize: "13px",
+                      color: colors.login.title,
+                    }}
+                  >
+                    Email / Username
+                  </label>
+
+                  <div
+                    style={{
+                      position: "relative",
+                      display: "flex",
+                      alignItems: "center",
+                      height: "44px",
+                      border: `1.5px solid ${errors.emailOrUsername ? colors.status.error : colors.login.inputBorder}`,
+                      borderRadius: "8px",
+                      background: "#FFFFFF",
+                      padding: "0 12px",
+                      boxSizing: "border-box",
+                      transition: "border-color 0.2s ease",
+                    }}
+                  >
+                    <Mail
+                      size={18}
+                      color={colors.login.inputIcon}
+                      style={{ flexShrink: 0, marginRight: "10px" }}
+                    />
+                    <input
+                      id="emailOrUsername"
+                      type="text"
+                      placeholder="admin@company.com or username"
+                      {...register("emailOrUsername")}
+                      style={{
+                        width: "100%",
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        fontFamily: typography.fontFamily.sans,
+                        fontSize: "14px",
+                        color: colors.login.inputText,
+                      }}
+                    />
+                  </div>
+
+                  {errors.emailOrUsername && (
+                    <span
+                      style={{
+                        fontFamily: typography.fontFamily.sans,
+                        fontSize: "12px",
+                        color: colors.status.error,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <AlertCircle size={13} />
+                      {errors.emailOrUsername.message}
+                    </span>
+                  )}
+                </div>
+
+                {/* Password Field */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label
+                    htmlFor="password"
+                    style={{
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.medium,
+                      fontSize: "13px",
+                      color: colors.login.title,
+                    }}
+                  >
+                    Password
+                  </label>
+
+                  <div
+                    style={{
+                      position: "relative",
+                      display: "flex",
+                      alignItems: "center",
+                      height: "44px",
+                      border: `1.5px solid ${errors.password ? colors.status.error : colors.login.inputBorderActive}`,
+                      borderRadius: "8px",
+                      background: "#FFFFFF",
+                      padding: "0 12px",
+                      boxSizing: "border-box",
+                      transition: "border-color 0.2s ease",
+                    }}
+                  >
+                    <Lock
+                      size={18}
+                      color={colors.login.inputIcon}
+                      style={{ flexShrink: 0, marginRight: "10px" }}
+                    />
+                    <input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter your password"
+                      {...register("password")}
+                      style={{
+                        width: "100%",
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        fontFamily: typography.fontFamily.sans,
+                        fontSize: "14px",
+                        color: colors.login.inputText,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "3px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: colors.login.inputIcon,
+                      }}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                    </button>
+                  </div>
+
+                  {errors.password && (
+                    <span
+                      style={{
+                        fontFamily: typography.fontFamily.sans,
+                        fontSize: "12px",
+                        color: colors.status.error,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <AlertCircle size={13} />
+                      {errors.password.message}
+                    </span>
+                  )}
+
+                  {/* Forgot Password Link */}
+                  <div style={{ textAlign: "right", marginTop: "2px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      style={{
+                        fontFamily: typography.fontFamily.sans,
+                        fontWeight: typography.fontWeight.medium,
+                        fontSize: "13px",
+                        color: colors.login.forgotPassword,
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Forgot Password?
+                    </button>
+                  </div>
+                </div>
+
+                {/* Login Submit Button */}
                 <button
-                  key={role}
-                  type="button"
-                  onClick={() => setSelectedRole(role)}
+                  type="submit"
+                  disabled={isSubmitting}
                   style={{
-                    flex: 1,
-                    border: isActive ? `1px solid ${colors.login.roleBorder}` : "none",
-                    borderRadius: "6px",
-                    background: isActive ? colors.login.roleActiveBg : "transparent",
-                    color: isActive
-                      ? colors.login.roleActiveText
-                      : colors.login.roleInactiveText,
+                    width: "100%",
+                    height: "44px",
+                    background: colors.login.btnBg,
+                    color: colors.login.btnText,
+                    border: "none",
+                    borderRadius: "8px",
                     fontFamily: typography.fontFamily.sans,
-                    fontWeight: typography.fontWeight.medium,
-                    fontSize: "14px",
-                    lineHeight: "18px",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
+                    fontWeight: typography.fontWeight.bold,
+                    fontSize: "16px",
+                    cursor: isSubmitting ? "not-allowed" : "pointer",
+                    transition: "background 0.2s ease, transform 0.1s ease",
+                    marginTop: "4px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    gap: "8px",
+                    boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
                   }}
+                  className="login-btn"
                 >
-                  {role}
+                  <ShieldCheck size={18} />
+                  {isSubmitting ? "Signing in..." : "Sign In as Super Admin"}
                 </button>
-              );
-            })}
-          </div>
+              </form>
+            </>
+          ) : (
+            /* ─── FORGOT PASSWORD FLOW ──────────────────────────────────────── */
+            <>
+              {!forgotSuccess ? (
+                <>
+                  {/* Back to login button */}
+                  <button
+                    type="button"
+                    onClick={handleBackToLogin}
+                    style={{
+                      alignSelf: "flex-start",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: colors.brand.accent,
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.medium,
+                      fontSize: "13px",
+                      marginBottom: "8px",
+                      padding: 0,
+                    }}
+                  >
+                    <ArrowLeft size={16} />
+                    Back to Sign In
+                  </button>
 
-          {/* ── Login Form ── */}
-          <form
-            onSubmit={handleSubmit(onSubmit)}
-            style={{
-              width: "100%",
-              display: "flex",
-              flexDirection: "column",
-              gap: "18px",
-            }}
-          >
-            {/* Email/Username Field */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <label
-                htmlFor="emailOrUsername"
-                style={{
-                  fontFamily: typography.fontFamily.sans,
-                  fontWeight: typography.fontWeight.medium,
-                  fontSize: "14px",
-                  lineHeight: "18px",
-                  color: colors.login.title,
-                }}
-              >
-                Email/Username
-              </label>
+                  <h1
+                    style={{
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.bold,
+                      fontSize: "22px",
+                      color: colors.login.title,
+                      margin: "0 0 8px 0",
+                      textAlign: "center",
+                    }}
+                  >
+                    Reset Your Password
+                  </h1>
+                  <p
+                    style={{
+                      fontSize: "14px",
+                      color: colors.login.subtitle,
+                      textAlign: "center",
+                      margin: "0 0 24px 0",
+                      fontFamily: typography.fontFamily.sans,
+                      maxWidth: "320px",
+                    }}
+                  >
+                    Enter the email address linked to your Super Admin account. We&apos;ll send a password reset link.
+                  </p>
 
-              <div
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  height: "42px",
-                  border: `1px solid ${
-                    errors.emailOrUsername ? colors.status.error : colors.login.inputBorder
-                  }`,
-                  borderRadius: "8px",
-                  background: "#FFFFFF",
-                  padding: "0 12px",
-                  boxSizing: "border-box",
-                  transition: "border-color 0.2s ease",
-                }}
-              >
-                <Mail
-                  size={18}
-                  color={colors.login.inputIcon}
-                  style={{ flexShrink: 0, marginRight: "10px" }}
-                />
-                <input
-                  id="emailOrUsername"
-                  type="text"
-                  placeholder="Enter your email or username"
-                  {...register("emailOrUsername")}
+                  <form
+                    onSubmit={handleForgotSubmit(onForgotSubmit)}
+                    style={{ width: "100%", display: "flex", flexDirection: "column", gap: "16px" }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <label
+                        htmlFor="forgotEmail"
+                        style={{
+                          fontFamily: typography.fontFamily.sans,
+                          fontWeight: typography.fontWeight.medium,
+                          fontSize: "13px",
+                          color: colors.login.title,
+                        }}
+                      >
+                        Admin Email Address
+                      </label>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          height: "44px",
+                          border: `1.5px solid ${forgotErrors.email ? colors.status.error : colors.login.inputBorder}`,
+                          borderRadius: "8px",
+                          background: "#FFFFFF",
+                          padding: "0 12px",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <Mail
+                          size={18}
+                          color={colors.login.inputIcon}
+                          style={{ flexShrink: 0, marginRight: "10px" }}
+                        />
+                        <input
+                          id="forgotEmail"
+                          type="email"
+                          placeholder="admin@company.com"
+                          {...registerForgot("email")}
+                          style={{
+                            width: "100%",
+                            border: "none",
+                            outline: "none",
+                            background: "transparent",
+                            fontFamily: typography.fontFamily.sans,
+                            fontSize: "14px",
+                            color: colors.login.inputText,
+                          }}
+                        />
+                      </div>
+
+                      {forgotErrors.email && (
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            color: colors.status.error,
+                            fontFamily: typography.fontFamily.sans,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          <AlertCircle size={13} />
+                          {forgotErrors.email.message}
+                        </span>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={forgotSubmitting}
+                      style={{
+                        width: "100%",
+                        height: "44px",
+                        background: colors.login.btnBg,
+                        color: colors.login.btnText,
+                        border: "none",
+                        borderRadius: "8px",
+                        fontFamily: typography.fontFamily.sans,
+                        fontWeight: typography.fontWeight.bold,
+                        fontSize: "15px",
+                        cursor: forgotSubmitting ? "not-allowed" : "pointer",
+                        boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
+                      }}
+                      className="login-btn"
+                    >
+                      {forgotSubmitting ? "Sending..." : "Send Reset Link"}
+                    </button>
+                  </form>
+                </>
+              ) : (
+                /* ─── SUCCESS STATE ─────────────────────────────────────────── */
+                <div
                   style={{
-                    width: "100%",
-                    border: "none",
-                    outline: "none",
-                    background: "transparent",
-                    fontFamily: typography.fontFamily.sans,
-                    fontSize: "14px",
-                    color: colors.login.inputText,
-                  }}
-                />
-              </div>
-
-              {errors.emailOrUsername && (
-                <span
-                  style={{
-                    fontFamily: typography.fontFamily.sans,
-                    fontSize: "12px",
-                    color: colors.status.error,
-                    marginTop: "1px",
-                  }}
-                >
-                  {errors.emailOrUsername.message}
-                </span>
-              )}
-            </div>
-
-            {/* Password Field */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <label
-                htmlFor="password"
-                style={{
-                  fontFamily: typography.fontFamily.sans,
-                  fontWeight: typography.fontWeight.medium,
-                  fontSize: "14px",
-                  lineHeight: "18px",
-                  color: colors.login.title,
-                }}
-              >
-                Password
-              </label>
-
-              <div
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  height: "42px",
-                  border: `1px solid ${
-                    errors.password ? colors.status.error : colors.login.inputBorderActive
-                  }`,
-                  borderRadius: "8px",
-                  background: "#FFFFFF",
-                  padding: "0 12px",
-                  boxSizing: "border-box",
-                  transition: "border-color 0.2s ease",
-                }}
-              >
-                <Lock
-                  size={18}
-                  color={colors.login.inputIcon}
-                  style={{ flexShrink: 0, marginRight: "10px" }}
-                />
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
-                  {...register("password")}
-                  style={{
-                    width: "100%",
-                    border: "none",
-                    outline: "none",
-                    background: "transparent",
-                    fontFamily: typography.fontFamily.sans,
-                    fontSize: "14px",
-                    color: colors.login.inputText,
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: "3px",
                     display: "flex",
+                    flexDirection: "column",
                     alignItems: "center",
-                    justifyContent: "center",
-                    color: colors.login.inputIcon,
+                    gap: "16px",
+                    textAlign: "center",
+                    padding: "12px 0",
+                    width: "100%",
                   }}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
-                </button>
-              </div>
+                  <div
+                    style={{
+                      width: "64px",
+                      height: "64px",
+                      borderRadius: "50%",
+                      background: "#F0FDF4",
+                      border: `2px solid ${colors.status.success}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <CheckCircle2 size={32} color={colors.status.success} />
+                  </div>
 
-              {errors.password && (
-                <span
-                  style={{
-                    fontFamily: typography.fontFamily.sans,
-                    fontSize: "12px",
-                    color: colors.status.error,
-                    marginTop: "1px",
-                  }}
-                >
-                  {errors.password.message}
-                </span>
+                  <h2
+                    style={{
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.bold,
+                      fontSize: "20px",
+                      color: colors.login.title,
+                      margin: 0,
+                    }}
+                  >
+                    Reset Link Sent!
+                  </h2>
+
+                  <p
+                    style={{
+                      fontFamily: typography.fontFamily.sans,
+                      fontSize: "14px",
+                      color: colors.login.subtitle,
+                      margin: 0,
+                      maxWidth: "300px",
+                    }}
+                  >
+                    A password reset link has been sent to your admin email address. Please check your inbox.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleBackToLogin}
+                    style={{
+                      marginTop: "8px",
+                      width: "100%",
+                      height: "44px",
+                      background: colors.login.btnBg,
+                      color: colors.login.btnText,
+                      border: "none",
+                      borderRadius: "8px",
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.bold,
+                      fontSize: "15px",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                    }}
+                    className="login-btn"
+                  >
+                    <ArrowLeft size={18} />
+                    Back to Sign In
+                  </button>
+                </div>
               )}
-
-              {/* Forgot Password Link */}
-              <div style={{ textAlign: "right", marginTop: "2px" }}>
-                <a
-                  href="#forgot-password"
-                  onClick={(e) => {
-                    e.preventDefault();
-                  }}
-                  style={{
-                    fontFamily: typography.fontFamily.sans,
-                    fontWeight: typography.fontWeight.medium,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                    color: colors.login.forgotPassword,
-                    textDecoration: "none",
-                  }}
-                >
-                  Forgot Password?
-                </a>
-              </div>
-            </div>
-
-            {/* Login Submit Button */}
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              style={{
-                width: "100%",
-                height: "42px",
-                background: colors.login.btnBg,
-                color: colors.login.btnText,
-                border: "none",
-                borderRadius: "8px",
-                fontFamily: typography.fontFamily.sans,
-                fontWeight: typography.fontWeight.bold,
-                fontSize: "16px",
-                lineHeight: "20px",
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-                transition: "background 0.2s ease, transform 0.1s ease",
-                marginTop: "6px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
-              }}
-              className="login-btn"
-            >
-              {isSubmitting ? "Logging in..." : "Login"}
-            </button>
-          </form>
-        </div>
-
-        {/* ── Footer Link Below Card ── */}
-        <div
-          style={{
-            marginTop: "16px",
-            textAlign: "center",
-            fontFamily: typography.fontFamily.sans,
-            fontSize: "14px",
-            lineHeight: "18px",
-            fontWeight: typography.fontWeight.normal,
-            color: colors.login.footerText,
-          }}
-        >
-          Don’t have an account?{" "}
-          <a
-            href="#contact-admin"
-            onClick={(e) => {
-              e.preventDefault();
-            }}
-            style={{
-              color: colors.login.footerAdminLink,
-              fontWeight: typography.fontWeight.semibold,
-              textDecoration: "none",
-            }}
-          >
-            Contact Administrator
-          </a>
+            </>
+          )}
         </div>
       </main>
 

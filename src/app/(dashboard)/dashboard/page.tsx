@@ -13,7 +13,6 @@ import {
   Calendar,
   ArrowUpRight,
   ShieldCheck,
-  CheckCircle2,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import {
@@ -24,9 +23,13 @@ import {
   PendingRequest,
   RenewalItem,
 } from "@/types/superadmin";
+import { useRouter } from "next/navigation";
 import { exportToXLS } from "@/lib/exportUtils";
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
+
   // State for mock data
   const [admins] = useState<AdminUser[]>(INITIAL_ADMINS);
   const [pendingRequests] = useState<PendingRequest[]>(INITIAL_PENDING_REQUESTS);
@@ -311,11 +314,20 @@ export default function DashboardPage() {
       >
         {/* Card 1: Number of Admin */}
         <div
+          onClick={() => router.push("/admin")}
+          onMouseEnter={() => setHoveredCard(1)}
+          onMouseLeave={() => setHoveredCard(null)}
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
             padding: "20px",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+            boxShadow:
+              hoveredCard === 1
+                ? "0 12px 28px rgba(0, 0, 0, 0.22)"
+                : "0 2px 10px rgba(0, 0, 0, 0.04)",
+            cursor: "pointer",
+            transition: "all 0.22s ease",
+            transform: hoveredCard === 1 ? "translateY(-4px)" : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -356,7 +368,7 @@ export default function DashboardPage() {
                 gap: "3px",
               }}
             >
-              <ShieldCheck size={14} /> Active Super Admins
+              <ShieldCheck size={14} /> Active Platform Admins
             </span>
           </div>
 
@@ -377,11 +389,20 @@ export default function DashboardPage() {
 
         {/* Card 2: Number of Pending Requests */}
         <div
+          onClick={() => router.push("/pending-requests")}
+          onMouseEnter={() => setHoveredCard(2)}
+          onMouseLeave={() => setHoveredCard(null)}
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
             padding: "20px",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+            boxShadow:
+              hoveredCard === 2
+                ? "0 12px 28px rgba(0, 0, 0, 0.22)"
+                : "0 2px 10px rgba(0, 0, 0, 0.04)",
+            cursor: "pointer",
+            transition: "all 0.22s ease",
+            transform: hoveredCard === 2 ? "translateY(-4px)" : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -440,11 +461,20 @@ export default function DashboardPage() {
 
         {/* Card 3: Upcoming renewal */}
         <div
+          onClick={() => router.push("/renewal")}
+          onMouseEnter={() => setHoveredCard(3)}
+          onMouseLeave={() => setHoveredCard(null)}
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
             padding: "20px",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+            boxShadow:
+              hoveredCard === 3
+                ? "0 12px 28px rgba(0, 0, 0, 0.22)"
+                : "0 2px 10px rgba(0, 0, 0, 0.04)",
+            cursor: "pointer",
+            transition: "all 0.22s ease",
+            transform: hoveredCard === 3 ? "translateY(-4px)" : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -503,15 +533,24 @@ export default function DashboardPage() {
 
         {/* Card 4: Total Earnings */}
         <div
+          onClick={() => router.push("/admin")}
+          onMouseEnter={() => setHoveredCard(4)}
+          onMouseLeave={() => setHoveredCard(null)}
           style={{
-            background: colors.sidebar.bg,
-            color: "#FFFFFF",
+            background: "#FFFFFF",
             borderRadius: "12px",
             padding: "20px",
-            boxShadow: "0 4px 14px rgba(12, 42, 66, 0.15)",
+            boxShadow:
+              hoveredCard === 4
+                ? "0 12px 28px rgba(0, 0, 0, 0.22)"
+                : "0 2px 10px rgba(0, 0, 0, 0.04)",
+            cursor: "pointer",
+            transition: "all 0.22s ease",
+            transform: hoveredCard === 4 ? "translateY(-4px)" : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            borderLeft: `4px solid ${colors.status.success}`,
           }}
         >
           <div>
@@ -520,7 +559,7 @@ export default function DashboardPage() {
                 fontFamily: typography.fontFamily.sans,
                 fontSize: "13px",
                 fontWeight: typography.fontWeight.medium,
-                color: "rgba(255, 255, 255, 0.7)",
+                color: colors.text.muted,
                 display: "block",
               }}
             >
@@ -531,7 +570,7 @@ export default function DashboardPage() {
                 fontFamily: typography.fontFamily.sans,
                 fontSize: "26px",
                 fontWeight: typography.fontWeight.bold,
-                color: colors.brand.primary,
+                color: colors.text.primary,
                 margin: "4px 0",
                 display: "block",
               }}
@@ -543,12 +582,9 @@ export default function DashboardPage() {
                 fontSize: "12px",
                 color: colors.status.success,
                 fontWeight: 600,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "2px",
               }}
             >
-              <ArrowUpRight size={14} /> Annual Recurring Revenue
+              Platform Annual Revenue
             </span>
           </div>
 
@@ -557,13 +593,13 @@ export default function DashboardPage() {
               width: "48px",
               height: "48px",
               borderRadius: "12px",
-              background: "rgba(244, 188, 67, 0.2)",
+              background: "rgba(34, 197, 94, 0.15)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <IndianRupee size={24} color={colors.brand.primary} />
+            <IndianRupee size={24} color={colors.status.success} />
           </div>
         </div>
       </div>

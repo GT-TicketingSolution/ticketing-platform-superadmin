@@ -61,3 +61,16 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* ── Override notify-bolt text-transform: capitalize ────────────────────────
+   The library forces every word to be capitalised. We reset it so that
+   only the first letter of each sentence is capital (as written in notify.ts).
+*/
+.notify-classic-title,
+.notify-classic-message,
+.notify-default-title,
+.notify-default-message,
+.notify-minimal-title,
+.notify-minimal-message {
+  text-transform: none;
+}

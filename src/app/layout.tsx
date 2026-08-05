@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import { ToastProvider } from "@/components/ui/Toast";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-plus-jakarta-sans",
@@ -9,15 +10,17 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Ticket Booking Platform – Admin",
-  description: "Admin panel for the Ticket Booking Platform",
+  title: "Super Admin – Ticketing Platform",
+  description: "Super Admin control panel for the Ticketing Platform",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${plusJakartaSans.variable} h-full`}>
       <body style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
-        {children}
+        <ToastProvider>
+          {children}
+        </ToastProvider>
       </body>
     </html>
   );

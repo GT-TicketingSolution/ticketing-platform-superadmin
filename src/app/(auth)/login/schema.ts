@@ -6,14 +6,12 @@ export const loginSchema = z.object({
     .min(1, "Email or Username is required")
     .refine(
       (val) => {
-        // If user typed an '@', enforce email validation format
         if (val.includes("@")) {
           return z.string().email().safeParse(val).success;
         }
-        // Otherwise allow username of 3+ chars
         return val.length >= 3;
       },
-      { message: "Please enter a valid email or username (min 3 characters)" }
+      { message: "Enter a valid email address or username (min 3 characters)" }
     ),
   password: z
     .string()
@@ -22,4 +20,13 @@ export const loginSchema = z.object({
 });
 
 export type LoginFormData = z.infer<typeof loginSchema>;
-export type RoleType = "Admin" | "Manager" | "Staff";
+
+// ── Forgot Password schema ────────────────────────────────────────────────────
+export const forgotPasswordSchema = z.object({
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .email("Enter a valid email address"),
+});
+
+export type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;

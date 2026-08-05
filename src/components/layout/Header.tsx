@@ -1,24 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, UserCircle2, AlignRight } from "lucide-react";
+import { Bell, AlignRight, ChevronDown, Settings, LogOut } from "lucide-react";
 import { colors, typography, spacing } from "@/lib/theme";
+import { useRouter } from "next/navigation";
 
 interface HeaderProps {
   title?: string;
   isMobile?: boolean;
   onMenuClick?: () => void;
-  /** Left offset = current sidebar width so header spans the content area */
   sidebarWidth?: number;
 }
 
 export default function Header({
-  title = "Nahargarh Ticket Booking",
+  title = "Super Admin Panel",
   isMobile = false,
   onMenuClick,
   sidebarWidth = spacing.sidebarWidth,
 }: HeaderProps) {
+  const router = useRouter();
   const [bellHovered, setBellHovered] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   return (
     <header
@@ -64,24 +66,10 @@ export default function Header({
         </button>
       )}
 
-      {/* Title */}
-      <h1
-        style={{
-          fontFamily: typography.fontFamily.sans,
-          fontStyle: "normal",
-          fontWeight: typography.fontWeight.bold,
-          fontSize: isMobile ? "16px" : typography.fontSize.xl,
-          lineHeight: typography.lineHeight.normal,
-          color: colors.header.title,
-          margin: 0,
-          flex: 1,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {title}
-      </h1>
+
+      {/* Spacer to push right-side actions to the right */}
+      <div style={{ flex: 1 }} />
+
 
       {/* Right-side actions */}
       <div
@@ -92,7 +80,7 @@ export default function Header({
           flexShrink: 0,
         }}
       >
-        {/* ── Notification Bell Container with Tooltip ── */}
+        {/* Notification Bell */}
         <div style={{ position: "relative", display: "inline-block" }}>
           <button
             aria-label="Notifications"
@@ -105,23 +93,32 @@ export default function Header({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              width: "30px",
-              height: "30px",
+              width: "34px",
+              height: "34px",
               padding: 0,
               borderRadius: "50%",
               transition: "background 0.18s ease, border-color 0.18s ease",
               flexShrink: 0,
+              position: "relative",
             }}
             className="header-bell-btn"
           >
-            <Bell
-              size={16}
-              color={colors.header.iconColor}
-              strokeWidth={1.8}
+            <Bell size={16} color={colors.header.iconColor} strokeWidth={1.8} />
+            {/* Notification dot */}
+            <span
+              style={{
+                position: "absolute",
+                top: "4px",
+                right: "4px",
+                width: "7px",
+                height: "7px",
+                borderRadius: "50%",
+                background: colors.status.error,
+                border: "1.5px solid #FFFFFF",
+              }}
             />
           </button>
 
-          {/* Hover Tooltip Popup */}
           {bellHovered && (
             <div
               style={{
@@ -142,7 +139,6 @@ export default function Header({
                 boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
               }}
             >
-              {/* Arrow indicator */}
               <span
                 style={{
                   position: "absolute",
@@ -162,74 +158,169 @@ export default function Header({
         {/* Vertical divider */}
         <div
           style={{
-            width: "2px",
+            width: "1px",
             height: "36px",
             background: colors.header.border,
             flexShrink: 0,
           }}
         />
 
-        {/* User avatar + name/role */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            cursor: "pointer",
-            flexShrink: 0,
-          }}
-        >
-          {/* Filled dark avatar circle */}
+        {/* User avatar + name/role + dropdown */}
+        <div style={{ position: "relative" }}>
           <div
+            onClick={() => setProfileOpen((p) => !p)}
             style={{
-              width: "34px",
-              height: "34px",
-              borderRadius: "50%",
-              background: colors.header.avatarBg,
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
+              gap: "10px",
+              cursor: "pointer",
               flexShrink: 0,
+              padding: "4px 8px",
+              borderRadius: "8px",
+              transition: "background 0.15s ease",
             }}
+            className="header-profile-btn"
           >
-            <svg
-              width="23"
-              height="23"
-              viewBox="0 0 24 24"
-              fill={colors.text.white}
-              xmlns="http://www.w3.org/2000/svg"
+            {/* Avatar with SA initials */}
+            <div
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                background: colors.sidebar.bg,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                border: `2px solid ${colors.brand.primary}`,
+              }}
             >
-              <path d="M12 12C14.7614 12 17 9.76142 17 7C17 4.23858 14.7614 2 12 2C9.23858 2 7 4.23858 7 7C7 9.76142 9.23858 12 12 12Z" />
-              <path d="M12 14C7.58172 14 4 16.6863 4 20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20C20 16.6863 16.4183 14 12 14Z" />
-            </svg>
+              <span
+                style={{
+                  color: colors.brand.primary,
+                  fontFamily: typography.fontFamily.sans,
+                  fontWeight: typography.fontWeight.bold,
+                  fontSize: "13px",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                SA
+              </span>
+            </div>
+
+            {!isMobile && (
+              <>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span
+                    style={{
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.bold,
+                      fontSize: "14px",
+                      lineHeight: "18px",
+                      color: colors.header.userNameText,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Super Admin
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: typography.fontFamily.sans,
+                      fontWeight: typography.fontWeight.medium,
+                      fontSize: "11px",
+                      lineHeight: "14px",
+                      color: colors.brand.primary,
+                    }}
+                  >
+                    Full System Access
+                  </span>
+                </div>
+                <ChevronDown
+                  size={14}
+                  color={colors.text.muted}
+                  style={{
+                    transform: profileOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.2s ease",
+                  }}
+                />
+              </>
+            )}
           </div>
 
-          {/* Name + Role (hidden on mobile) */}
-          {!isMobile && (
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <span
+          {/* Profile Dropdown */}
+          {profileOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 8px)",
+                right: 0,
+                background: "#FFFFFF",
+                borderRadius: "12px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                border: `1px solid ${colors.header.border}`,
+                minWidth: "200px",
+                zIndex: 100,
+                overflow: "hidden",
+                animation: "dropdownSlide 0.18s ease-out",
+              }}
+            >
+              <div
                 style={{
-                  fontFamily: typography.fontFamily.sans,
-                  fontWeight: typography.fontWeight.bold,
-                  fontSize: "14px",
-                  lineHeight: "18px",
-                  color: colors.header.userNameText,
-                  whiteSpace: "nowrap",
+                  padding: "12px 16px",
+                  borderBottom: `1px solid ${colors.header.border}`,
+                  background: "#F8FAFC",
                 }}
               >
-                Amit Sharma
-              </span>
-              <span
-                style={{
-                  fontFamily: typography.fontFamily.sans,
-                  fontWeight: typography.fontWeight.bold,
-                  fontSize: "12px",
-                  lineHeight: "15px",
-                  color: colors.header.userRoleText,
-                }}
-              >
-                Admin
-              </span>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: typography.fontWeight.bold,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
+                  Super Admin
+                </div>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: colors.text.muted,
+                    fontFamily: typography.fontFamily.sans,
+                    marginTop: "2px",
+                  }}
+                >
+                  admin@superadmin.com
+                </div>
+              </div>
+
+              <div style={{ padding: "6px" }}>
+                <button
+                  onClick={() => {
+                    setProfileOpen(false);
+                    router.push("/login");
+                  }}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    padding: "9px 12px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontFamily: typography.fontFamily.sans,
+                    fontWeight: typography.fontWeight.medium,
+                    color: colors.status.error,
+                    transition: "background 0.15s ease",
+                  }}
+                  className="dropdown-logout-btn"
+                >
+                  <LogOut size={16} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -243,6 +334,16 @@ export default function Header({
         .header-bell-btn:hover {
           background: ${colors.bg.page} !important;
           border-color: ${colors.brand.accent} !important;
+        }
+        .header-profile-btn:hover {
+          background: ${colors.bg.page} !important;
+        }
+        .dropdown-logout-btn:hover {
+          background: rgba(239, 68, 68, 0.08) !important;
+        }
+        @keyframes dropdownSlide {
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </header>
