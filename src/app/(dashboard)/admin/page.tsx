@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -21,6 +21,8 @@ import {
   Mail,
   MapPin,
   History,
+  Filter,
+  Building2,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { INITIAL_ADMINS, AdminUser } from "@/types/superadmin";
@@ -28,6 +30,7 @@ import { useToast } from "@/components/ui/Toast";
 import { confirmDelete, confirmAdd } from "@/lib/notify";
 import { addAdminSchema, AddAdminFormData } from "./schema";
 import { DataTable, Column } from "@/components/ui/DataTable";
+import { META_CONSTANTS } from "@/lib/metaConstant";
 
 // ─── Field-level error helper ──────────────────────────────────────────────────
 function FieldError({ message }: { message?: string }) {
@@ -141,9 +144,14 @@ const getRenewalHistory = (
 };
 
 export default function AdminPage() {
+  useEffect(() => {
+    document.title = META_CONSTANTS.admin.fullTitle;
+  }, []);
+
   const { showToast } = useToast();
   const [admins, setAdmins] = useState<AdminUser[]>(INITIAL_ADMINS);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
 
   // Modals / View state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -174,14 +182,16 @@ export default function AdminPage() {
   // Watch rolesAccess for real-time checkbox state in the Add modal
   const watchedRoles = useWatch({ control, name: "rolesAccess", defaultValue: [] });
 
-  // Filtered Admins
-  const filteredAdmins = admins.filter(
-    (a) =>
+  // Filtered Admins by search and city
+  const filteredAdmins = admins.filter((a) => {
+    const matchesCity = selectedCityFilter === "All" || a.city === selectedCityFilter;
+    const matchesSearch =
       a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.phone.includes(searchQuery) ||
-      a.subDomain.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      a.subDomain.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCity && matchesSearch;
+  });
 
   // ── Handle Add Admin ───────────────────────────────────────────────────────
   const onAddSubmit = async (data: AddAdminFormData) => {
@@ -1015,34 +1025,85 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* Search Bar */}
+      {/* City Filter & Search Bar */}
       <div
         style={{
           background: "#FFFFFF",
           borderRadius: "12px",
-          padding: "12px 16px",
+          padding: "14px 20px",
           boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
           display: "flex",
+          flexWrap: "wrap",
           alignItems: "center",
-          gap: "10px",
-          maxWidth: "420px",
+          gap: "16px",
         }}
       >
-        <Search size={18} color={colors.text.muted} />
-        <input
-          type="text"
-          placeholder="Search admin by name, number, email, or domain..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+        {/* Filter by City (First) */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Filter size={16} color={colors.brand.accent} />
+          <span style={{ fontSize: "13px", fontWeight: 600, color: colors.text.muted, fontFamily: typography.fontFamily.sans }}>
+            Filter by City:
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <Building2 size={16} color={colors.text.muted} />
+            <select
+              value={selectedCityFilter}
+              onChange={(e) => setSelectedCityFilter(e.target.value)}
+              style={{
+                height: "38px",
+                borderRadius: "8px",
+                border: `1px solid ${colors.header.border}`,
+                padding: "0 12px",
+                fontFamily: typography.fontFamily.sans,
+                fontSize: "13px",
+                fontWeight: 600,
+                color: colors.brand.accent,
+                outline: "none",
+                cursor: "pointer",
+                background: "#FFFFFF",
+              }}
+            >
+              <option value="All">All Cities</option>
+              <option value="Jaipur">Jaipur</option>
+              <option value="Udaipur">Udaipur</option>
+              <option value="Jodhpur">Jodhpur</option>
+              <option value="Delhi">Delhi</option>
+              <option value="Mumbai">Mumbai</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        <div
           style={{
-            width: "100%",
-            border: "none",
-            outline: "none",
-            fontSize: "14px",
-            fontFamily: typography.fontFamily.sans,
-            color: colors.text.primary,
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            background: colors.bg.page,
+            padding: "8px 14px",
+            borderRadius: "8px",
+            border: `1px solid ${colors.header.border}`,
+            flex: 1,
+            minWidth: "240px",
           }}
-        />
+        >
+          <Search size={18} color={colors.text.muted} />
+          <input
+            type="text"
+            placeholder="Search admin by name, number, email, domain..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: "100%",
+              border: "none",
+              outline: "none",
+              fontSize: "14px",
+              background: "transparent",
+              fontFamily: typography.fontFamily.sans,
+              color: colors.text.primary,
+            }}
+          />
+        </div>
       </div>
 
       {/* ── Reusable DataTable UI (with S.No column & 5 items pagination) ── */}

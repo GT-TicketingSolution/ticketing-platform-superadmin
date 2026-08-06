@@ -1,28 +1,88 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Calendar,
   Building2,
   Search,
   Send,
+  AlertTriangle,
+  Clock,
+  CheckCircle2,
+  Filter,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { INITIAL_RENEWALS, RenewalItem } from "@/types/superadmin";
 import { useToast } from "@/components/ui/Toast";
 import { confirmNotify } from "@/lib/notify";
 import { DataTable, Column } from "@/components/ui/DataTable";
+import { META_CONSTANTS } from "@/lib/metaConstant";
 
 export default function RenewalPage() {
+  useEffect(() => {
+    document.title = META_CONSTANTS.renewal.fullTitle;
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const searchParam = params.get("search");
+      if (searchParam) {
+        setSearchQuery(searchParam);
+      }
+    }
+  }, []);
+
   const { showToast } = useToast();
   const [renewals, setRenewals] = useState<RenewalItem[]>(INITIAL_RENEWALS);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("All");
 
-  const filteredRenewals = renewals.filter(
-    (r) =>
+  const renderRenewalStatusBadge = (status: RenewalItem["status"]) => {
+    let bg: string = "rgba(35, 114, 165, 0.12)";
+    let fg: string = colors.brand.accent;
+    let icon = <Calendar size={13} />;
+
+    if (status === "Overdue") {
+      bg = "#FEF2F2";
+      fg = colors.status.error;
+      icon = <AlertTriangle size={13} />;
+    } else if (status === "Due Soon") {
+      bg = "#FFFBEB";
+      fg = "#D97706";
+      icon = <Clock size={13} />;
+    } else if (status === "Completed") {
+      bg = "#F0FDF4";
+      fg = "#16A34A";
+      icon = <CheckCircle2 size={13} />;
+    }
+
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "5px",
+          background: bg,
+          color: fg,
+          padding: "4px 10px",
+          borderRadius: "20px",
+          fontSize: "12px",
+          fontWeight: 700,
+          border: `1px solid ${fg}30`,
+        }}
+      >
+        {icon}
+        {status}
+      </span>
+    );
+  };
+
+  const filteredRenewals = renewals.filter((r) => {
+    const matchesSearch =
       r.businessName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.city.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      r.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.adminName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === "All" || r.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const handleSendNotification = async (id: string, businessName: string) => {
     const confirmed = await confirmNotify(businessName);
@@ -62,7 +122,7 @@ export default function RenewalPage() {
           <div>
             <div style={{ fontWeight: 600 }}>{r.businessName}</div>
             <div style={{ fontSize: "12px", color: colors.brand.accent }}>
-              {r.city} • ID: {r.id}
+              {r.city} &bull; Admin: {r.adminName}
             </div>
           </div>
         </div>
@@ -78,6 +138,10 @@ export default function RenewalPage() {
           </span>
         </div>
       ),
+    },
+    {
+      header: "Status",
+      cell: (r) => renderRenewalStatusBadge(r.status),
     },
     {
       header: "Amount",
@@ -124,7 +188,7 @@ export default function RenewalPage() {
 
           {r.lastNotificationSent && (
             <span style={{ fontSize: "11px", color: colors.text.muted }}>
-              Last sent today at {r.lastNotificationSent}
+              Last  sent  today at {r.lastNotificationSent}
             </span>
           )}
         </div>
@@ -169,33 +233,80 @@ export default function RenewalPage() {
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Search & Status Filter Bar */}
       <div
         style={{
           background: "#FFFFFF",
           borderRadius: "12px",
-          padding: "12px 16px",
+          padding: "14px 20px",
           boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
           display: "flex",
+          flexWrap: "wrap",
           alignItems: "center",
-          gap: "10px",
-          maxWidth: "420px",
+          justifyContent: "space-between",
+          gap: "16px",
         }}
       >
-        <Search size={18} color={colors.text.muted} />
-        <input
-          type="text"
-          placeholder="Search renewal by business name or city..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+        <div
           style={{
-            width: "100%",
-            border: "none",
-            outline: "none",
-            fontSize: "14px",
-            fontFamily: typography.fontFamily.sans,
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            background: colors.bg.page,
+            padding: "8px 14px",
+            borderRadius: "8px",
+            border: `1px solid ${colors.header.border}`,
+            width: "320px",
           }}
-        />
+        >
+          <Search size={18} color={colors.text.muted} />
+          <input
+            type="text"
+            placeholder="Search business name, city, admin..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: "100%",
+              border: "none",
+              outline: "none",
+              fontSize: "14px",
+              background: "transparent",
+              fontFamily: typography.fontFamily.sans,
+            }}
+          />
+        </div>
+
+        {/* Status Filter Buttons */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <span style={{ fontSize: "13px", fontWeight: 600, color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+            <Filter size={14} /> Filter Status:
+          </span>
+          {["All", "Due Soon", "Overdue", "Upcoming"].map((status) => {
+            const isActive = statusFilter === status;
+            return (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: "20px",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: isActive
+                    ? `1.5px solid ${colors.brand.accent}`
+                    : `1px solid ${colors.header.border}`,
+                  background: isActive ? "rgba(35, 114, 165, 0.1)" : "#FFFFFF",
+                  color: isActive ? colors.brand.accent : colors.text.muted,
+                  transition: "all 0.15s ease",
+                  fontFamily: typography.fontFamily.sans,
+                }}
+              >
+                {status}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ── Reusable DataTable UI (with S.No & 5 items pagination) ── */}

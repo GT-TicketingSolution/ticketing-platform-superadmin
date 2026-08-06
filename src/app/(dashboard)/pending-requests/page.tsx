@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -23,6 +23,7 @@ import {
   FileText,
   StickyNote,
   Calendar,
+  Building2,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { INITIAL_PENDING_REQUESTS, PendingRequest } from "@/types/superadmin";
@@ -30,8 +31,9 @@ import { useToast } from "@/components/ui/Toast";
 import { confirmAdd, confirmDelete, confirmStatusChange } from "@/lib/notify";
 import { addRequestSchema, AddRequestFormData } from "./schema";
 import { DataTable, Column } from "@/components/ui/DataTable";
+import { META_CONSTANTS } from "@/lib/metaConstant";
 
-// ─── Field-level error helper ──────────────────────────────────────────────────
+//  Field-level error helper
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return (
@@ -52,7 +54,7 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
-// ─── Styled input helper ───────────────────────────────────────────────────────
+// Styled input helper
 const inputStyle = (hasError: boolean): React.CSSProperties => ({
   width: "100%",
   height: "40px",
@@ -72,6 +74,23 @@ export default function PendingRequestsPage() {
   const [requests, setRequests] = useState<PendingRequest[]>(INITIAL_PENDING_REQUESTS);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("All");
+  const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
+
+  // Read URL query parameter + set page title
+  useEffect(() => {
+    document.title = META_CONSTANTS.pendingRequests.fullTitle;
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const statusParam = params.get("status");
+      if (statusParam) {
+        setSelectedStatusFilter(statusParam);
+      }
+      const searchParam = params.get("search");
+      if (searchParam) {
+        setSearchQuery(searchParam);
+      }
+    }
+  }, []);
 
   // Selected request for details view
   const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(null);
@@ -80,7 +99,7 @@ export default function PendingRequestsPage() {
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  // ── react-hook-form for Add Request ─────────────────────────────────────────
+  // react-hook-form for Add Request
   const {
     register,
     handleSubmit,
@@ -140,16 +159,18 @@ export default function PendingRequestsPage() {
     );
   };
 
-  // Filter requests
+  // Filter requests by status, city, and search
   const filteredRequests = requests.filter((req) => {
     const matchesStatus =
       selectedStatusFilter === "All" || req.status === selectedStatusFilter;
+    const matchesCity =
+      selectedCityFilter === "All" || req.city === selectedCityFilter;
     const matchesSearch =
       req.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.phone.includes(searchQuery) ||
       req.desc.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
+    return matchesStatus && matchesCity && matchesSearch;
   });
 
   // Add request with confirm
@@ -228,7 +249,14 @@ export default function PendingRequestsPage() {
   const columns: Column<PendingRequest>[] = [
     {
       header: "Admin Name",
-      cell: (req) => <span style={{ fontWeight: 600 }}>{req.name}</span>,
+      cell: (req) => (
+        <div>
+          <div style={{ fontWeight: 600 }}>{req.name}</div>
+          <div style={{ fontSize: "12px", color: colors.brand.accent, fontWeight: 500 }}>
+            {req.city}
+          </div>
+        </div>
+      ),
     },
     { header: "Number", accessorKey: "phone" },
     { header: "Email", accessorKey: "email" },
@@ -796,6 +824,7 @@ export default function PendingRequestsPage() {
           gap: "16px",
         }}
       >
+        {/* Filter Status */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Filter size={16} color={colors.brand.accent} />
           <span style={{ fontSize: "13px", fontWeight: 600, fontFamily: typography.fontFamily.sans }}>
@@ -815,11 +844,42 @@ export default function PendingRequestsPage() {
               outline: "none",
             }}
           >
-            <option value="All">All Statuses</option>
+            <option value="All">All Status</option>
             <option value="Pending">Pending</option>
             <option value="In-progress">In-progress</option>
             <option value="Accepted">Accepted</option>
             <option value="Canceled">Canceled</option>
+          </select>
+        </div>
+
+        {/* Filter City */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Building2 size={16} color={colors.text.muted} />
+          <span style={{ fontSize: "13px", fontWeight: 600, fontFamily: typography.fontFamily.sans, color: colors.text.muted }}>
+            City:
+          </span>
+          <select
+            value={selectedCityFilter}
+            onChange={(e) => setSelectedCityFilter(e.target.value)}
+            style={{
+              height: "36px",
+              borderRadius: "8px",
+              border: `1px solid ${colors.header.border}`,
+              padding: "0 12px",
+              fontSize: "13px",
+              fontFamily: typography.fontFamily.sans,
+              background: "#FFFFFF",
+              outline: "none",
+              fontWeight: 600,
+              color: colors.brand.accent,
+            }}
+          >
+            <option value="All">All Cities</option>
+            <option value="Jaipur">Jaipur</option>
+            <option value="Udaipur">Udaipur</option>
+            <option value="Jodhpur">Jodhpur</option>
+            <option value="Delhi">Delhi</option>
+            <option value="Mumbai">Mumbai</option>
           </select>
         </div>
 

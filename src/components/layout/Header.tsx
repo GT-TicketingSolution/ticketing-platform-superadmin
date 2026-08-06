@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, AlignRight, ChevronDown, Settings, LogOut } from "lucide-react";
+import { AlignRight, Bell, ChevronDown, Settings, LogOut } from "lucide-react";
 import { colors, typography, spacing } from "@/lib/theme";
 import { useRouter } from "next/navigation";
+import { useProfile } from "@/context/ProfileContext";
+import { useNotifications } from "@/hooks/useNotifications";
 
 interface HeaderProps {
   title?: string;
@@ -12,6 +14,8 @@ interface HeaderProps {
   sidebarWidth?: number;
 }
 
+
+// ── Main Header
 export default function Header({
   title = "Super Admin Panel",
   isMobile = false,
@@ -19,8 +23,9 @@ export default function Header({
   sidebarWidth = spacing.sidebarWidth,
 }: HeaderProps) {
   const router = useRouter();
-  const [bellHovered, setBellHovered] = useState(false);
+  const { profile, openEditModal } = useProfile();
   const [profileOpen, setProfileOpen] = useState(false);
+  const { badgeLabel, hasNotifications } = useNotifications();
 
   return (
     <header
@@ -66,10 +71,8 @@ export default function Header({
         </button>
       )}
 
-
-      {/* Spacer to push right-side actions to the right */}
+      {/* Spacer */}
       <div style={{ flex: 1 }} />
-
 
       {/* Right-side actions */}
       <div
@@ -80,92 +83,68 @@ export default function Header({
           flexShrink: 0,
         }}
       >
-        {/* Notification Bell */}
-        <div style={{ position: "relative", display: "inline-block" }}>
-          <button
-            aria-label="Notifications"
-            onMouseEnter={() => setBellHovered(true)}
-            onMouseLeave={() => setBellHovered(false)}
-            style={{
-              background: "transparent",
-              border: `1.5px solid ${colors.header.iconColor}`,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "34px",
-              height: "34px",
-              padding: 0,
-              borderRadius: "50%",
-              transition: "background 0.18s ease, border-color 0.18s ease",
-              flexShrink: 0,
-              position: "relative",
-            }}
-            className="header-bell-btn"
-          >
-            <Bell size={16} color={colors.header.iconColor} strokeWidth={1.8} />
-            {/* Notification dot */}
+        {/*Bell icon → navigates to /notifications page */}
+        <button
+          id="header-notification-btn"
+          onClick={() => router.push("/notifications")}
+          aria-label="Notifications"
+          style={{
+            position: "relative",
+            background: "transparent",
+            borderRadius: "10px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "35px",
+            height: "35px",
+            transition: "background 0.15s ease, border-color 0.15s ease",
+            flexShrink: 0,
+          }}
+          className="header-bell-btn"
+        >
+          <Bell size={22} color={colors.header.iconColor} />
+
+          {/* Badge */}
+          {hasNotifications && (
             <span
               style={{
                 position: "absolute",
-                top: "4px",
-                right: "4px",
-                width: "7px",
-                height: "7px",
-                borderRadius: "50%",
-                background: colors.status.error,
-                border: "1.5px solid #FFFFFF",
-              }}
-            />
-          </button>
-
-          {bellHovered && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 8px)",
-                left: "50%",
-                transform: "translateX(-50%)",
-                background: colors.sidebar.tooltipBg,
-                color: colors.sidebar.tooltipText,
+                top: "-3px",
+                right: "-5px",
+                minWidth: "14px",
+                height: "18px",
+                borderRadius: "9px",
+                background: "#EF4444",
+                color: "#fff",
+                fontSize: "10px",
+                fontWeight: typography.fontWeight.bold,
                 fontFamily: typography.fontFamily.sans,
-                fontSize: "12px",
-                fontWeight: typography.fontWeight.medium,
-                padding: "4px 10px",
-                borderRadius: "6px",
-                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0 3px",
+                border: "2px solid #fff",
+                lineHeight: 1,
                 pointerEvents: "none",
-                zIndex: 100,
-                boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
               }}
             >
-              <span
-                style={{
-                  position: "absolute",
-                  bottom: "100%",
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  borderWidth: "5px",
-                  borderStyle: "solid",
-                  borderColor: `transparent transparent ${colors.sidebar.tooltipBg} transparent`,
-                }}
-              />
-              Notifications
-            </div>
+              {badgeLabel}
+            </span>
           )}
-        </div>
+        </button>
 
-        {/* Vertical divider */}
+        {/*Vertical divider */}
         <div
           style={{
             width: "1px",
-            height: "36px",
+            height: "28px",
             background: colors.header.border,
             flexShrink: 0,
           }}
         />
 
-        {/* User avatar + name/role + dropdown */}
+        {/* ── User avatar + name/role + dropdown */}
         <div style={{ position: "relative" }}>
           <div
             onClick={() => setProfileOpen((p) => !p)}
@@ -204,7 +183,7 @@ export default function Header({
                   letterSpacing: "0.5px",
                 }}
               >
-                SA
+                {profile.avatarInitials}
               </span>
             </div>
 
@@ -221,7 +200,7 @@ export default function Header({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Super Admin
+                    {profile.name}
                   </span>
                   <span
                     style={{
@@ -232,7 +211,7 @@ export default function Header({
                       color: colors.brand.primary,
                     }}
                   >
-                    Full System Access
+                    {profile.role}
                   </span>
                 </div>
                 <ChevronDown
@@ -258,7 +237,7 @@ export default function Header({
                 borderRadius: "12px",
                 boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
                 border: `1px solid ${colors.header.border}`,
-                minWidth: "200px",
+                minWidth: "210px",
                 zIndex: 100,
                 overflow: "hidden",
                 animation: "dropdownSlide 0.18s ease-out",
@@ -279,7 +258,7 @@ export default function Header({
                     fontFamily: typography.fontFamily.sans,
                   }}
                 >
-                  Super Admin
+                  {profile.name}
                 </div>
                 <div
                   style={{
@@ -289,11 +268,38 @@ export default function Header({
                     marginTop: "2px",
                   }}
                 >
-                  admin@superadmin.com
+                  {profile.email}
                 </div>
               </div>
 
               <div style={{ padding: "6px" }}>
+                <button
+                  onClick={() => {
+                    setProfileOpen(false);
+                    openEditModal();
+                  }}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    padding: "9px 12px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontFamily: typography.fontFamily.sans,
+                    fontWeight: typography.fontWeight.medium,
+                    color: colors.text.primary,
+                    transition: "background 0.15s ease",
+                  }}
+                  className="dropdown-item-btn"
+                >
+                  <Settings size={16} color={colors.text.muted} />
+                  <span>Edit Profile / Settings</span>
+                </button>
+
                 <button
                   onClick={() => {
                     setProfileOpen(false);
@@ -336,6 +342,9 @@ export default function Header({
           border-color: ${colors.brand.accent} !important;
         }
         .header-profile-btn:hover {
+          background: ${colors.bg.page} !important;
+        }
+        .dropdown-item-btn:hover {
           background: ${colors.bg.page} !important;
         }
         .dropdown-logout-btn:hover {

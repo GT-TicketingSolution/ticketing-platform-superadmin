@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Users,
   Clock,
@@ -24,9 +24,15 @@ import {
   PendingRequest,
   RenewalItem,
 } from "@/types/superadmin";
-import { exportToXLS } from "@/lib/exportUtils";
+import { exportMultiSectionXLS, XLSSection } from "@/lib/exportUtils";
+import DashboardCharts from "@/components/dashboard/DashboardCharts";
+import { META_CONSTANTS } from "@/lib/metaConstant";
 
 export default function DashboardPage() {
+  useEffect(() => {
+    document.title = META_CONSTANTS.dashboard.fullTitle;
+  }, []);
+
   // State for mock data
   const [admins] = useState<AdminUser[]>(INITIAL_ADMINS);
   const [pendingRequests] = useState<PendingRequest[]>(INITIAL_PENDING_REQUESTS);
@@ -93,22 +99,102 @@ export default function DashboardPage() {
     return filteredAdmins.reduce((sum, admin) => sum + admin.renewalAmount, 0);
   }, [filteredAdmins]);
 
-  // Handle Export XLS
+  // Handle Export XLS (Exports full platform dashboard data: Stats + Admins + Pending Requests + Renewals)
   const handleExportXLS = () => {
-    const exportData = filteredAdmins.map((a) => ({
-      "Admin Name": a.name,
-      Phone: a.phone,
-      Email: a.email,
-      City: a.city,
-      "Sub Domain": a.subDomain,
-      "Renewal Amount": `₹${a.renewalAmount.toLocaleString("en-IN")}`,
-      "Joined Date": a.joinedDate,
-      "Last Renewal Date": a.lastRenewalDate,
-      "Next Renewal Date": a.nextRenewalDate,
-      Status: a.status,
-    }));
+    const sections: XLSSection[] = [
+      {
+        title: "1. PLATFORM SUMMARY METRICS",
+        headers: ["Metric Label", "Value"],
+        rows: [
+          ["Total Active Admins", totalAdminsCount],
+          ["Pending Requests Count", pendingRequestsCount],
+          ["Upcoming Renewals Count", upcomingRenewalsCount],
+          ["Total Platform Revenue Dues", `₹${totalEarnings.toLocaleString("en-IN")}`],
+          ["Selected City Filter", selectedCity],
+          ["Active Search Query", searchQuery || "None"],
+          ["Export Generated At", new Date().toLocaleString()],
+        ],
+      },
+      {
+        title: "2. ACTIVE ADMINISTRATORS DIRECTORY",
+        headers: [
+          "Admin ID",
+          "Admin Name",
+          "Phone",
+          "Email",
+          "City",
+          "Sub-Domain",
+          "Joined Date",
+          "Last Renewal Date",
+          "Next Renewal Date",
+          "Renewal Amount",
+          "Status",
+        ],
+        rows: filteredAdmins.map((a) => [
+          a.id,
+          a.name,
+          a.phone,
+          a.email,
+          a.city,
+          a.subDomain,
+          a.joinedDate,
+          a.lastRenewalDate,
+          a.nextRenewalDate,
+          `₹${a.renewalAmount.toLocaleString("en-IN")}`,
+          a.status,
+        ]),
+      },
+      {
+        title: "3. PENDING & SYSTEM REQUESTS LOG",
+        headers: [
+          "Request ID",
+          "Admin Name",
+          "Phone",
+          "Email",
+          "City",
+          "Request Description",
+          "Internal Notes",
+          "Created Date",
+          "Status",
+        ],
+        rows: filteredPendingRequests.map((r) => [
+          r.id,
+          r.name,
+          r.phone,
+          r.email,
+          r.city,
+          r.desc,
+          r.notes || "N/A",
+          r.createdDate,
+          r.status,
+        ]),
+      },
+      {
+        title: "4. SUBSCRIPTION & LICENSE RENEWALS TRACKER",
+        headers: [
+          "Renewal ID",
+          "Business Name",
+          "Admin Name",
+          "City",
+          "Renewal Date",
+          "Amount Dues",
+          "Status",
+          "Last Reminder Sent",
+        ],
+        rows: filteredRenewals.map((r) => [
+          r.id,
+          r.businessName,
+          r.adminName,
+          r.city,
+          r.renewalDate,
+          `₹${r.amount.toLocaleString("en-IN")}`,
+          r.status,
+          r.lastNotificationSent || "Not Sent Yet",
+        ]),
+      },
+    ];
 
-    exportToXLS(`SuperAdmin_Dashboard_Report_${selectedCity}`, exportData);
+    exportMultiSectionXLS(`SuperAdmin_Full_Dashboard_Report_${selectedCity}`, sections);
   };
 
   return (
@@ -247,7 +333,7 @@ export default function DashboardPage() {
           >
             {cities.map((city) => (
               <option key={city} value={city}>
-                City: {city}
+                {city === "All" ? "All Cities" : city}
               </option>
             ))}
           </select>
@@ -309,8 +395,9 @@ export default function DashboardPage() {
           gap: "18px",
         }}
       >
-        {/* Card 1: Number of Admin */}
-        <div
+        {/* Card 1: Number of Admin (Clickable) */}
+        <a
+          href="/admin"
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
@@ -320,7 +407,11 @@ export default function DashboardPage() {
             alignItems: "center",
             justifyContent: "space-between",
             borderLeft: `4px solid ${colors.brand.primary}`,
+            textDecoration: "none",
+            transition: "all 0.2s ease",
+            cursor: "pointer",
           }}
+          className="stat-card-hover"
         >
           <div>
             <span
@@ -356,7 +447,7 @@ export default function DashboardPage() {
                 gap: "3px",
               }}
             >
-              <ShieldCheck size={14} /> Active Super Admins
+              <ShieldCheck size={14} /> Active Admins &bull; View All &rarr;
             </span>
           </div>
 
@@ -373,10 +464,11 @@ export default function DashboardPage() {
           >
             <Users size={24} color={colors.sidebar.bg} />
           </div>
-        </div>
+        </a>
 
-        {/* Card 2: Number of Pending Requests */}
-        <div
+        {/* Card 2: Number of Pending Requests (Clickable) */}
+        <a
+          href="/pending-requests?status=Pending"
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
@@ -386,7 +478,11 @@ export default function DashboardPage() {
             alignItems: "center",
             justifyContent: "space-between",
             borderLeft: `4px solid ${colors.brand.accent}`,
+            textDecoration: "none",
+            transition: "all 0.2s ease",
+            cursor: "pointer",
           }}
+          className="stat-card-hover"
         >
           <div>
             <span
@@ -417,9 +513,12 @@ export default function DashboardPage() {
                 fontSize: "12px",
                 color: colors.brand.accent,
                 fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
               }}
             >
-              Action Required
+              Action Required &bull; Review Now &rarr;
             </span>
           </div>
 
@@ -436,10 +535,11 @@ export default function DashboardPage() {
           >
             <Clock size={24} color={colors.brand.accent} />
           </div>
-        </div>
+        </a>
 
-        {/* Card 3: Upcoming renewal */}
-        <div
+        {/* Card 3: Upcoming renewal (Clickable) */}
+        <a
+          href="/renewal"
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
@@ -449,7 +549,11 @@ export default function DashboardPage() {
             alignItems: "center",
             justifyContent: "space-between",
             borderLeft: `4px solid ${colors.status.warning}`,
+            textDecoration: "none",
+            transition: "all 0.2s ease",
+            cursor: "pointer",
           }}
+          className="stat-card-hover"
         >
           <div>
             <span
@@ -480,9 +584,12 @@ export default function DashboardPage() {
                 fontSize: "12px",
                 color: colors.status.warning,
                 fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
               }}
             >
-              Due within 30-90 Days
+              Due Soon &bull; View Dues &rarr;
             </span>
           </div>
 
@@ -499,7 +606,7 @@ export default function DashboardPage() {
           >
             <RefreshCw size={24} color={colors.brand.primary} />
           </div>
-        </div>
+        </a>
 
         {/* Card 4: Total Earnings */}
         <div
@@ -568,6 +675,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── Dashboard Interactive Charts ── */}
+      <DashboardCharts />
+
       {/* ── Dynamic Breakdown Table ── */}
       <div
         style={{
@@ -597,12 +707,32 @@ export default function DashboardPage() {
                 margin: 0,
               }}
             >
-              Active Administrators Overview ({filteredAdmins.length})
+              Active Administrators Overview
             </h3>
             <span style={{ fontSize: "13px", color: colors.text.muted }}>
-              Filtered by City: <strong>{selectedCity}</strong>
+              Showing most recent 5 of {filteredAdmins.length} admins &bull; Filtered by City: <strong>{selectedCity}</strong>
             </span>
           </div>
+          <a
+            href="/admin"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: colors.brand.accent,
+              textDecoration: "none",
+              padding: "6px 14px",
+              borderRadius: "8px",
+              border: `1px solid ${colors.header.border}`,
+              background: "#FFFFFF",
+              transition: "all 0.18s ease",
+            }}
+            className="view-all-link"
+          >
+            View All →
+          </a>
         </div>
 
         <div style={{ overflowX: "auto" }}>
@@ -650,7 +780,10 @@ export default function DashboardPage() {
                   </td>
                 </tr>
               ) : (
-                filteredAdmins.map((admin) => (
+                [...filteredAdmins]
+                  .sort((a, b) => new Date(b.joinedDate).getTime() - new Date(a.joinedDate).getTime())
+                  .slice(0, 5)
+                  .map((admin) => (
                   <tr
                     key={admin.id}
                     style={{
@@ -717,6 +850,14 @@ export default function DashboardPage() {
       <style>{`
         .table-row-hover:hover {
           background: #F8FAFC !important;
+        }
+        .view-all-link:hover {
+          background: ${colors.bg.page} !important;
+          color: ${colors.sidebar.bg} !important;
+        }
+        .stat-card-hover:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 8px 20px rgba(0,0,0,0.08) !important;
         }
       `}</style>
     </div>

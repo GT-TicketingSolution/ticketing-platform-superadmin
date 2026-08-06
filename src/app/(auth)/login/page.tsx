@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -23,8 +23,13 @@ import {
   forgotPasswordSchema,
   ForgotPasswordFormData,
 } from "./schema";
+import { META_CONSTANTS } from "@/lib/metaConstant";
 
 export default function LoginPage() {
+  useEffect(() => {
+    document.title = META_CONSTANTS.login.fullTitle;
+  }, []);
+
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);

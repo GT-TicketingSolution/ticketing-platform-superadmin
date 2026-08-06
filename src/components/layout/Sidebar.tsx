@@ -10,14 +10,17 @@ import {
   Clock,
   RefreshCw,
   KeyRound,
+  Settings,
   LogOut,
   AlignRight,
   X,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import ChangePasswordModal from "@/components/modals/ChangePasswordModal";
+import EditProfileModal from "@/components/modals/EditProfileModal";
+import { useProfile } from "@/context/ProfileContext";
 
-// ─── Nav items for Super Admin ───────────────────────────────────────────────
+//  Nav items 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Admin", href: "/admin", icon: Shield },
@@ -180,20 +183,23 @@ function NavItem({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Bottom Sidebar Actions (Change Password & Logout)
-// ─────────────────────────────────────────────────────────────────────────────
+// Bottom Sidebar Actions (Change Password,settings & Logout)
+
 function BottomActions({
   isIconOnly,
   onChangePassword,
+  onEditProfile,
 }: {
   isIconOnly: boolean;
   onChangePassword: () => void;
+  onEditProfile: () => void;
 }) {
   const router = useRouter();
+  const [settingsHovered, setSettingsHovered] = useState(false);
   const [passHovered, setPassHovered] = useState(false);
   const [logoutHovered, setLogoutHovered] = useState(false);
 
+  const settingsRef = useRef<HTMLDivElement>(null);
   const passRef = useRef<HTMLDivElement>(null);
   const logoutRef = useRef<HTMLDivElement>(null);
 
@@ -212,6 +218,58 @@ function BottomActions({
         flexShrink: 0,
       }}
     >
+      {/* Settings / Edit Profile */}
+      <div
+        ref={settingsRef}
+        onClick={onEditProfile}
+        onMouseEnter={() => setSettingsHovered(true)}
+        onMouseLeave={() => setSettingsHovered(false)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: isIconOnly ? 0 : "12px",
+          padding: isIconOnly ? "10px 0" : "10px 14px",
+          borderRadius: "8px",
+          cursor: "pointer",
+          background: settingsHovered ? colors.sidebar.hoverBg : "transparent",
+          transition: "background 0.18s ease",
+          justifyContent: isIconOnly ? "center" : "flex-start",
+        }}
+      >
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "20px",
+            height: "20px",
+            flexShrink: 0,
+          }}
+        >
+          <Settings size={18} color={colors.sidebar.iconColor} strokeWidth={1.6} />
+        </span>
+        {!isIconOnly && (
+          <span
+            style={{
+              fontFamily: typography.fontFamily.sans,
+              fontWeight: typography.fontWeight.medium,
+              fontSize: "14px",
+              color: colors.sidebar.itemText,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Settings
+          </span>
+        )}
+      </div>
+
+      {isIconOnly && (
+        <PortalTooltip
+          label="Settings"
+          anchorRef={settingsRef as React.RefObject<HTMLElement | null>}
+          visible={settingsHovered}
+        />
+      )}
       {/* Change Password */}
       <div
         ref={passRef}
@@ -340,6 +398,7 @@ export default function Sidebar({
   onDrawerClose,
 }: SidebarProps) {
   const pathname = usePathname();
+  const { profile, openEditModal } = useProfile();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   const closeDrawer = useCallback(onDrawerClose, [onDrawerClose]);
@@ -356,35 +415,35 @@ export default function Sidebar({
 
   const sidebarStyle: React.CSSProperties = isMobile
     ? {
-        width: `${colors.sidebar.width}px`,
-        minWidth: `${colors.sidebar.width}px`,
-        height: "100vh",
-        background: colors.sidebar.bg,
-        display: "flex",
-        flexDirection: "column",
-        position: "fixed",
-        left: drawerOpen ? 0 : `-${colors.sidebar.width}px`,
-        top: 0,
-        zIndex: 60,
-        overflowY: "auto",
-        overflowX: "hidden",
-        transition: "left 0.28s cubic-bezier(0.4,0,0.2,1)",
-      }
+      width: `${colors.sidebar.width}px`,
+      minWidth: `${colors.sidebar.width}px`,
+      height: "100vh",
+      background: colors.sidebar.bg,
+      display: "flex",
+      flexDirection: "column",
+      position: "fixed",
+      left: drawerOpen ? 0 : `-${colors.sidebar.width}px`,
+      top: 0,
+      zIndex: 60,
+      overflowY: "auto",
+      overflowX: "hidden",
+      transition: "left 0.28s cubic-bezier(0.4,0,0.2,1)",
+    }
     : {
-        width: `${desktopWidth}px`,
-        minWidth: `${desktopWidth}px`,
-        height: "100vh",
-        background: colors.sidebar.bg,
-        display: "flex",
-        flexDirection: "column",
-        position: "fixed",
-        left: 0,
-        top: 0,
-        zIndex: 50,
-        overflowY: "auto",
-        overflowX: isIconOnly ? "visible" : "hidden",
-        transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
-      };
+      width: `${desktopWidth}px`,
+      minWidth: `${desktopWidth}px`,
+      height: "100vh",
+      background: colors.sidebar.bg,
+      display: "flex",
+      flexDirection: "column",
+      position: "fixed",
+      left: 0,
+      top: 0,
+      zIndex: 50,
+      overflowY: "auto",
+      overflowX: isIconOnly ? "visible" : "hidden",
+      transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
+    };
 
   return (
     <>
@@ -429,7 +488,7 @@ export default function Sidebar({
                   fontSize: "16px",
                 }}
               >
-                SA
+                {profile.avatarInitials}
               </div>
               <span
                 style={{
@@ -440,7 +499,7 @@ export default function Sidebar({
                   whiteSpace: "nowrap",
                 }}
               >
-                Super Admin
+                {profile.name}
               </span>
             </div>
           )}
@@ -517,6 +576,7 @@ export default function Sidebar({
         <BottomActions
           isIconOnly={isIconOnly}
           onChangePassword={() => setChangePasswordOpen(true)}
+          onEditProfile={openEditModal}
         />
 
         <style>{`
@@ -537,6 +597,9 @@ export default function Sidebar({
         isOpen={changePasswordOpen}
         onClose={() => setChangePasswordOpen(false)}
       />
+
+      {/* Edit Profile Dialog */}
+      <EditProfileModal />
     </>
   );
 }
