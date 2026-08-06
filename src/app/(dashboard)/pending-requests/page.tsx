@@ -501,17 +501,21 @@ export default function PendingRequestsPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>City</label>
-                <select
+                <input
+                  type="text"
+                  list="pending-req-city-list"
+                  placeholder="Select or type city..."
                   value={selectedRequest.city}
                   onChange={(e) => setSelectedRequest({ ...selectedRequest, city: e.target.value })}
                   style={{ ...inputStyle(false), background: "#FFFFFF" }}
-                >
-                  <option value="Jaipur">Jaipur</option>
-                  <option value="Udaipur">Udaipur</option>
-                  <option value="Jodhpur">Jodhpur</option>
-                  <option value="Delhi">Delhi</option>
-                  <option value="Mumbai">Mumbai</option>
-                </select>
+                />
+                <datalist id="pending-req-city-list">
+                  <option value="Jaipur" />
+                  <option value="Udaipur" />
+                  <option value="Jodhpur" />
+                  <option value="Delhi" />
+                  <option value="Mumbai" />
+                </datalist>
               </div>
             </div>
 
@@ -522,6 +526,16 @@ export default function PendingRequestsPage() {
                   type="text"
                   maxLength={10}
                   value={selectedRequest.phone}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key.length === 1 &&
+                      !/\d/.test(e.key) &&
+                      !e.ctrlKey &&
+                      !e.metaKey
+                    ) {
+                      e.preventDefault();
+                    }
+                  }}
                   onChange={(e) =>
                     setSelectedRequest({
                       ...selectedRequest,
@@ -996,10 +1010,20 @@ export default function PendingRequestsPage() {
                     maxLength={10}
                     placeholder="9876543210"
                     {...register("phone")}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key.length === 1 &&
+                        !/\d/.test(e.key) &&
+                        !e.ctrlKey &&
+                        !e.metaKey
+                      ) {
+                        e.preventDefault();
+                      }
+                    }}
                     onInput={(e) => {
                       const val = e.currentTarget.value.replace(/\D/g, "").slice(0, 10);
                       e.currentTarget.value = val;
-                      setValue("phone", val);
+                      setValue("phone", val, { shouldValidate: true });
                     }}
                     style={inputStyle(!!errors.phone)}
                   />

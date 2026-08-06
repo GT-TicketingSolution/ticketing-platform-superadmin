@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { colors, spacing } from "@/lib/theme";
@@ -9,6 +10,15 @@ import { colors, spacing } from "@/lib/theme";
 const MOBILE_BREAKPOINT = 1024;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
+  // Reset scroll to top on every route transition
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [pathname]);
+
   // true  → screen < 1024px  (tablet + mobile)
   // false → screen ≥ 1024px  (laptop + desktop)
   const [isMobile, setIsMobile] = useState(false);

@@ -562,7 +562,7 @@ export default function LoginPage() {
                           color: colors.login.title,
                         }}
                       >
-                        Admin Email Address
+                        Admin Email Address <span style={{ color: "#EF4444" }}>*</span>
                       </label>
 
                       <div

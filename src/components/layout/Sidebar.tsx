@@ -99,12 +99,14 @@ function NavItem({
   icon: Icon,
   isActive,
   isIconOnly,
+  onClick,
 }: {
   label: string;
   href: string;
   icon: React.ElementType;
   isActive: boolean;
   isIconOnly: boolean;
+  onClick?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -113,6 +115,8 @@ function NavItem({
     <>
       <Link
         href={href}
+        prefetch={true}
+        onClick={onClick}
         style={{ textDecoration: "none", display: "block", padding: "4px 12px" }}
       >
         <div
@@ -398,11 +402,16 @@ export default function Sidebar({
   onDrawerClose,
 }: SidebarProps) {
   const pathname = usePathname();
+  const [activePath, setActivePath] = useState<string | null>(null);
   const { profile, openEditModal } = useProfile();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   const closeDrawer = useCallback(onDrawerClose, [onDrawerClose]);
   useEffect(() => {
+    setActivePath(null);
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     if (isMobile && drawerOpen) closeDrawer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
@@ -554,10 +563,11 @@ export default function Sidebar({
         {/* Navigation items */}
         <nav style={{ flex: 1, padding: "12px 0" }}>
           {NAV_ITEMS.map((item) => {
+            const currentPath = activePath || pathname;
             const isActive =
-              pathname === item.href ||
-              pathname.startsWith(item.href + "/") ||
-              (item.href === "/dashboard" && pathname === "/");
+              currentPath === item.href ||
+              currentPath.startsWith(item.href + "/") ||
+              (item.href === "/dashboard" && currentPath === "/");
 
             return (
               <NavItem
@@ -567,6 +577,7 @@ export default function Sidebar({
                 icon={item.icon}
                 isActive={isActive}
                 isIconOnly={isIconOnly}
+                onClick={() => setActivePath(item.href)}
               />
             );
           })}

@@ -298,9 +298,25 @@ export default function EditProfileModal() {
                 />
                 <input
                   type="text"
+                  maxLength={10}
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="+91 98765 43210"
+                  onKeyDown={(e) => {
+                    if (
+                      e.key.length === 1 &&
+                      !/\d/.test(e.key) &&
+                      !e.ctrlKey &&
+                      !e.metaKey
+                    ) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      phone: e.target.value.replace(/\D/g, "").slice(0, 10),
+                    })
+                  }
+                  placeholder="9876543210"
                   style={{
                     width: "100%",
                     height: "40px",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import Link from "next/link";
 import {
   Users,
   Clock,
@@ -396,8 +397,9 @@ export default function DashboardPage() {
         }}
       >
         {/* Card 1: Number of Admin (Clickable) */}
-        <a
+        <Link
           href="/admin"
+          prefetch={true}
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
@@ -464,11 +466,12 @@ export default function DashboardPage() {
           >
             <Users size={24} color={colors.sidebar.bg} />
           </div>
-        </a>
+        </Link>
 
         {/* Card 2: Number of Pending Requests (Clickable) */}
-        <a
+        <Link
           href="/pending-requests?status=Pending"
+          prefetch={true}
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
@@ -535,11 +538,12 @@ export default function DashboardPage() {
           >
             <Clock size={24} color={colors.brand.accent} />
           </div>
-        </a>
+        </Link>
 
         {/* Card 3: Upcoming renewal (Clickable) */}
-        <a
+        <Link
           href="/renewal"
+          prefetch={true}
           style={{
             background: "#FFFFFF",
             borderRadius: "12px",
@@ -606,7 +610,7 @@ export default function DashboardPage() {
           >
             <RefreshCw size={24} color={colors.brand.primary} />
           </div>
-        </a>
+        </Link>
 
         {/* Card 4: Total Earnings */}
         <div
@@ -713,8 +717,9 @@ export default function DashboardPage() {
               Showing most recent 5 of {filteredAdmins.length} admins &bull; Filtered by City: <strong>{selectedCity}</strong>
             </span>
           </div>
-          <a
+          <Link
             href="/admin"
+            prefetch={true}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -732,7 +737,7 @@ export default function DashboardPage() {
             className="view-all-link"
           >
             View All →
-          </a>
+          </Link>
         </div>
 
         <div style={{ overflowX: "auto" }}>

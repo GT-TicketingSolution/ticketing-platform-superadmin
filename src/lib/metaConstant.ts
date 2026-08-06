@@ -95,4 +95,16 @@ export const META_CONSTANTS: Record<string, PageMeta> = {
       "Ticketing System Access",
     ],
   },
+  resetPassword: {
+    title: "Reset Password",
+    fullTitle: "Reset Password | Super Admin – Ticketing Platform",
+    description:
+      "Reset your Super Admin account password securely to regain access to the platform.",
+    keywords: [
+      "Reset Password",
+      "Super Admin Security",
+      "Password Recovery",
+      "Secure Access",
+    ],
+  },
 };

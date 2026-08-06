@@ -193,7 +193,7 @@ export default function ChangePasswordModal({
                 fontFamily: typography.fontFamily.sans,
               }}
             >
-              Current Password
+              Current Password <span style={{ color: "#EF4444" }}>*</span>
             </label>
             <div
               style={{
@@ -264,7 +264,7 @@ export default function ChangePasswordModal({
                 fontFamily: typography.fontFamily.sans,
               }}
             >
-              New Password
+              New Password <span style={{ color: "#EF4444" }}>*</span>
             </label>
             <div
               style={{
@@ -335,7 +335,7 @@ export default function ChangePasswordModal({
                 fontFamily: typography.fontFamily.sans,
               }}
             >
-              Confirm New Password
+              Confirm New Password <span style={{ color: "#EF4444" }}>*</span>
             </label>
             <div
               style={{

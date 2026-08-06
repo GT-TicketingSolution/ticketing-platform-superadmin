@@ -548,17 +548,21 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>City</label>
-                <select
+                <input
+                  type="text"
+                  list="admin-city-list"
+                  placeholder="Select or type city..."
                   value={selectedAdmin.city}
                   onChange={(e) => setSelectedAdmin({ ...selectedAdmin, city: e.target.value })}
                   style={{ ...inputStyle(false), background: "#FFFFFF" }}
-                >
-                  <option value="Jaipur">Jaipur</option>
-                  <option value="Udaipur">Udaipur</option>
-                  <option value="Jodhpur">Jodhpur</option>
-                  <option value="Delhi">Delhi</option>
-                  <option value="Mumbai">Mumbai</option>
-                </select>
+                />
+                <datalist id="admin-city-list">
+                  <option value="Jaipur" />
+                  <option value="Udaipur" />
+                  <option value="Jodhpur" />
+                  <option value="Delhi" />
+                  <option value="Mumbai" />
+                </datalist>
               </div>
             </div>
 
@@ -569,6 +573,16 @@ export default function AdminPage() {
                   type="text"
                   maxLength={10}
                   value={selectedAdmin.phone}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key.length === 1 &&
+                      !/\d/.test(e.key) &&
+                      !e.ctrlKey &&
+                      !e.metaKey
+                    ) {
+                      e.preventDefault();
+                    }
+                  }}
                   onChange={(e) =>
                     setSelectedAdmin({
                       ...selectedAdmin,
@@ -1190,10 +1204,20 @@ export default function AdminPage() {
                     maxLength={10}
                     placeholder="9876543210"
                     {...register("phone")}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key.length === 1 &&
+                        !/\d/.test(e.key) &&
+                        !e.ctrlKey &&
+                        !e.metaKey
+                      ) {
+                        e.preventDefault();
+                      }
+                    }}
                     onInput={(e) => {
                       const val = e.currentTarget.value.replace(/\D/g, "").slice(0, 10);
                       e.currentTarget.value = val;
-                      setValue("phone", val);
+                      setValue("phone", val, { shouldValidate: true });
                     }}
                     style={inputStyle(!!errors.phone)}
                   />
@@ -1205,16 +1229,20 @@ export default function AdminPage() {
                   <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
                     City <span style={{ color: "#EF4444" }}>*</span>
                   </label>
-                  <select
+                  <input
+                    type="text"
+                    list="admin-add-city-list"
+                    placeholder="Select or type city..."
                     {...register("city")}
                     style={{ ...inputStyle(!!errors.city), background: "#FFFFFF" }}
-                  >
-                    <option value="Jaipur">Jaipur</option>
-                    <option value="Udaipur">Udaipur</option>
-                    <option value="Jodhpur">Jodhpur</option>
-                    <option value="Delhi">Delhi</option>
-                    <option value="Mumbai">Mumbai</option>
-                  </select>
+                  />
+                  <datalist id="admin-add-city-list">
+                    <option value="Jaipur" />
+                    <option value="Udaipur" />
+                    <option value="Jodhpur" />
+                    <option value="Delhi" />
+                    <option value="Mumbai" />
+                  </datalist>
                   <FieldError message={errors.city?.message} />
                 </div>
               </div>
