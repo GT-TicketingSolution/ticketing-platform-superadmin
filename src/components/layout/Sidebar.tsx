@@ -20,7 +20,7 @@ import ChangePasswordModal from "@/components/modals/ChangePasswordModal";
 import EditProfileModal from "@/components/modals/EditProfileModal";
 import { useProfile } from "@/context/ProfileContext";
 
-//  Nav items 
+//  Nav items
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Admin", href: "/admin", icon: Shield },
@@ -89,7 +89,7 @@ function PortalTooltip({
       />
       {label}
     </div>,
-    document.body
+    document.body,
   );
 }
 
@@ -117,7 +117,11 @@ function NavItem({
         href={href}
         prefetch={true}
         onClick={onClick}
-        style={{ textDecoration: "none", display: "block", padding: "4px 12px" }}
+        style={{
+          textDecoration: "none",
+          display: "block",
+          padding: "4px 12px",
+        }}
       >
         <div
           ref={anchorRef as React.RefObject<HTMLDivElement>}
@@ -151,7 +155,11 @@ function NavItem({
           >
             <Icon
               size={18}
-              color={isActive ? colors.sidebar.activeIconColor : colors.sidebar.iconColor}
+              color={
+                isActive
+                  ? colors.sidebar.activeIconColor
+                  : colors.sidebar.iconColor
+              }
               strokeWidth={isActive ? 2.2 : 1.6}
             />
           </span>
@@ -165,7 +173,9 @@ function NavItem({
                   : typography.fontWeight.medium,
                 fontSize: "14px",
                 lineHeight: "20px",
-                color: isActive ? colors.sidebar.activeText : colors.sidebar.itemText,
+                color: isActive
+                  ? colors.sidebar.activeText
+                  : colors.sidebar.itemText,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
               }}
@@ -207,8 +217,27 @@ function BottomActions({
   const passRef = useRef<HTMLDivElement>(null);
   const logoutRef = useRef<HTMLDivElement>(null);
 
-  const handleLogout = () => {
-    router.push("/login");
+  const handleLogout = async () => {
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error("Logout failed:", result.message);
+        return;
+      }
+
+      router.push("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("LOGOUT_ERROR:", error);
+    }
   };
 
   return (
@@ -250,7 +279,11 @@ function BottomActions({
             flexShrink: 0,
           }}
         >
-          <Settings size={18} color={colors.sidebar.iconColor} strokeWidth={1.6} />
+          <Settings
+            size={18}
+            color={colors.sidebar.iconColor}
+            strokeWidth={1.6}
+          />
         </span>
         {!isIconOnly && (
           <span
@@ -302,7 +335,11 @@ function BottomActions({
             flexShrink: 0,
           }}
         >
-          <KeyRound size={18} color={colors.sidebar.iconColor} strokeWidth={1.6} />
+          <KeyRound
+            size={18}
+            color={colors.sidebar.iconColor}
+            strokeWidth={1.6}
+          />
         </span>
         {!isIconOnly && (
           <span
@@ -424,35 +461,35 @@ export default function Sidebar({
 
   const sidebarStyle: React.CSSProperties = isMobile
     ? {
-      width: `${colors.sidebar.width}px`,
-      minWidth: `${colors.sidebar.width}px`,
-      height: "100vh",
-      background: colors.sidebar.bg,
-      display: "flex",
-      flexDirection: "column",
-      position: "fixed",
-      left: drawerOpen ? 0 : `-${colors.sidebar.width}px`,
-      top: 0,
-      zIndex: 60,
-      overflowY: "auto",
-      overflowX: "hidden",
-      transition: "left 0.28s cubic-bezier(0.4,0,0.2,1)",
-    }
+        width: `${colors.sidebar.width}px`,
+        minWidth: `${colors.sidebar.width}px`,
+        height: "100vh",
+        background: colors.sidebar.bg,
+        display: "flex",
+        flexDirection: "column",
+        position: "fixed",
+        left: drawerOpen ? 0 : `-${colors.sidebar.width}px`,
+        top: 0,
+        zIndex: 60,
+        overflowY: "auto",
+        overflowX: "hidden",
+        transition: "left 0.28s cubic-bezier(0.4,0,0.2,1)",
+      }
     : {
-      width: `${desktopWidth}px`,
-      minWidth: `${desktopWidth}px`,
-      height: "100vh",
-      background: colors.sidebar.bg,
-      display: "flex",
-      flexDirection: "column",
-      position: "fixed",
-      left: 0,
-      top: 0,
-      zIndex: 50,
-      overflowY: "auto",
-      overflowX: isIconOnly ? "visible" : "hidden",
-      transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
-    };
+        width: `${desktopWidth}px`,
+        minWidth: `${desktopWidth}px`,
+        height: "100vh",
+        background: colors.sidebar.bg,
+        display: "flex",
+        flexDirection: "column",
+        position: "fixed",
+        left: 0,
+        top: 0,
+        zIndex: 50,
+        overflowY: "auto",
+        overflowX: isIconOnly ? "visible" : "hidden",
+        transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
+      };
 
   return (
     <>

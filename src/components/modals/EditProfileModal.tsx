@@ -7,7 +7,8 @@ import { useProfile } from "@/context/ProfileContext";
 import { useToast } from "@/components/ui/Toast";
 
 export default function EditProfileModal() {
-  const { profile, updateProfile, isEditModalOpen, closeEditModal } = useProfile();
+  const { profile, updateProfile, isEditModalOpen, closeEditModal } =
+    useProfile();
   const { showToast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -49,22 +50,56 @@ export default function EditProfileModal() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!validate()) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
+
+    try {
+      const response = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          email: formData.email.trim(),
+          phone: formData.phone.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to update profile");
+      }
+
+      // Update ProfileContext only after backend succeeds
       updateProfile({
-        name: formData.name.trim(),
-        email: formData.email.trim(),
-        phone: formData.phone.trim(),
+        name: result.data.name,
+        email: result.data.email,
+        phone: result.data.phone,
         role: formData.role.trim(),
       });
-      setIsSubmitting(false);
-      showToast("Super Admin profile updated successfully!", "success");
+
+      showToast(
+        result.message || "Super Admin profile updated successfully!",
+        "success",
+      );
+
       closeEditModal();
-    }, 400);
+    } catch (error) {
+      console.error("UPDATE_PROFILE_ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to update profile",
+        "error",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -168,7 +203,9 @@ export default function EditProfileModal() {
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} style={{ padding: "24px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "18px" }}
+          >
             {/* Full Name */}
             <div>
               <label
@@ -197,7 +234,9 @@ export default function EditProfileModal() {
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
                   placeholder="e.g. Super Admin"
                   style={{
                     width: "100%",
@@ -214,7 +253,14 @@ export default function EditProfileModal() {
                 />
               </div>
               {errors.name && (
-                <span style={{ fontSize: "12px", color: colors.status.error, marginTop: "4px", display: "block" }}>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: colors.status.error,
+                    marginTop: "4px",
+                    display: "block",
+                  }}
+                >
                   {errors.name}
                 </span>
               )}
@@ -232,7 +278,8 @@ export default function EditProfileModal() {
                   fontFamily: typography.fontFamily.sans,
                 }}
               >
-                Email Address <span style={{ color: colors.status.error }}>*</span>
+                Email Address{" "}
+                <span style={{ color: colors.status.error }}>*</span>
               </label>
               <div style={{ position: "relative" }}>
                 <Mail
@@ -248,7 +295,9 @@ export default function EditProfileModal() {
                 <input
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
                   placeholder="admin@superadmin.com"
                   style={{
                     width: "100%",
@@ -265,7 +314,14 @@ export default function EditProfileModal() {
                 />
               </div>
               {errors.email && (
-                <span style={{ fontSize: "12px", color: colors.status.error, marginTop: "4px", display: "block" }}>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: colors.status.error,
+                    marginTop: "4px",
+                    display: "block",
+                  }}
+                >
                   {errors.email}
                 </span>
               )}
@@ -283,7 +339,8 @@ export default function EditProfileModal() {
                   fontFamily: typography.fontFamily.sans,
                 }}
               >
-                Phone Number <span style={{ color: colors.status.error }}>*</span>
+                Phone Number{" "}
+                <span style={{ color: colors.status.error }}>*</span>
               </label>
               <div style={{ position: "relative" }}>
                 <Phone
@@ -332,7 +389,14 @@ export default function EditProfileModal() {
                 />
               </div>
               {errors.phone && (
-                <span style={{ fontSize: "12px", color: colors.status.error, marginTop: "4px", display: "block" }}>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: colors.status.error,
+                    marginTop: "4px",
+                    display: "block",
+                  }}
+                >
                   {errors.phone}
                 </span>
               )}

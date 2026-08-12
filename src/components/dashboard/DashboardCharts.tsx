@@ -16,45 +16,72 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { colors, typography } from "@/lib/theme";
-import { TrendingUp, Building2, Calendar, DollarSign, Layers } from "lucide-react";
+import {
+  TrendingUp,
+  Building2,
+  Calendar,
+  DollarSign,
+  Layers,
+} from "lucide-react";
 
-// Mock Data for Past Years & Annual Earnings Growth
-const ANNUAL_EARNINGS_DATA = [
-  { year: "2021", earnings: 320000, admins: 2, label: "₹3.20 Lakhs" },
-  { year: "2022", earnings: 450000, admins: 3, label: "₹4.50 Lakhs" },
-  { year: "2023", earnings: 620000, admins: 5, label: "₹6.20 Lakhs" },
-  { year: "2024", earnings: 780000, admins: 8, label: "₹7.80 Lakhs" },
-  { year: "2025", earnings: 940000, admins: 10, label: "₹9.40 Lakhs" },
-  { year: "2026 (YTD)", earnings: 685000, admins: 12, label: "₹6.85 Lakhs" },
-];
+type EarningsData = {
+  yearly: {
+    year: number;
+    amount: string;
+  }[];
 
-// Mock Data for Current Year Monthly Revenue Breakdown
-const MONTHLY_REVENUE_DATA = [
-  { month: "Jan", revenue: 55000 },
-  { month: "Feb", revenue: 62000 },
-  { month: "Mar", revenue: 78000 },
-  { month: "Apr", revenue: 45000 },
-  { month: "May", revenue: 82000 },
-  { month: "Jun", revenue: 95000 },
-  { month: "Jul", revenue: 110000 },
-  { month: "Aug", revenue: 158000 }, // Current month
-  { month: "Sep (Proj)", revenue: 85000 },
-  { month: "Oct (Proj)", revenue: 90000 },
-  { month: "Nov (Proj)", revenue: 105000 },
-  { month: "Dec (Proj)", revenue: 120000 },
-];
+  monthly: {
+    year: number;
+    data: {
+      month: number;
+      monthName: string;
+      amount: string;
+    }[];
+  };
 
-// Mock Data for City Revenue & Admin Count Distribution
-const CITY_DISTRIBUTION_DATA = [
-  { name: "Jaipur", revenue: 178000, count: 3, color: "#0C2A42" },
-  { name: "Udaipur", revenue: 169000, count: 2, color: "#F4BC43" },
-  { name: "Jodhpur", revenue: 140000, count: 2, color: "#10B981" },
-  { name: "Delhi", revenue: 110000, count: 2, color: "#3B82F6" },
-  { name: "Mumbai", revenue: 246000, count: 3, color: "#8B5CF6" },
-];
+  highestAnnualRevenue: {
+    year: number;
+    amount: string;
+  } | null;
 
-export default function DashboardCharts() {
+  growthRate: number;
+};
+
+type CityRevenue = {
+  city: string;
+  amount: string;
+};
+
+interface DashboardChartsProps {
+  earnings?: EarningsData;
+  cityRevenue: CityRevenue[];
+}
+
+export default function DashboardCharts({
+  earnings,
+  cityRevenue,
+}: DashboardChartsProps) {
   const [viewMode, setViewMode] = useState<"annual" | "monthly">("annual");
+
+  const annualEarningsData =
+    earnings?.yearly.map((item) => ({
+      year: String(item.year),
+      earnings: Number(item.amount),
+    })) ?? [];
+
+  const monthlyRevenueData =
+    earnings?.monthly.data.map((item) => ({
+      month: item.monthName.slice(0, 3),
+      revenue: Number(item.amount),
+    })) ?? [];
+
+  const cityDistributionData = cityRevenue.map((item, index) => ({
+    name: item.city,
+    revenue: Number(item.amount),
+
+    // Keep your existing chart colors.
+    color: ["#0C2A42", "#F4BC43", "#10B981", "#3B82F6", "#8B5CF6"][index % 5],
+  }));
 
   const formatCurrency = (val: number) => {
     if (val >= 100000) {
@@ -97,7 +124,9 @@ export default function DashboardCharts() {
             }}
           >
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "8px" }}
+              >
                 <TrendingUp size={20} color={colors.sidebar.bg} />
                 <h3
                   style={{
@@ -108,7 +137,9 @@ export default function DashboardCharts() {
                     color: colors.text.primary,
                   }}
                 >
-                  {viewMode === "annual" ? "Past Years Annual Earnings" : "2026 Monthly Revenue Breakdown"}
+                  {viewMode === "annual"
+                    ? "Past Years Annual Earnings"
+                    : `${earnings?.monthly.year ?? new Date().getFullYear()} Monthly Revenue Breakdown`}
                 </h3>
               </div>
               <p
@@ -146,7 +177,8 @@ export default function DashboardCharts() {
                   fontWeight: 600,
                   fontFamily: typography.fontFamily.sans,
                   cursor: "pointer",
-                  background: viewMode === "annual" ? colors.sidebar.bg : "transparent",
+                  background:
+                    viewMode === "annual" ? colors.sidebar.bg : "transparent",
                   color: viewMode === "annual" ? "#FFFFFF" : colors.text.muted,
                   transition: "all 0.18s ease",
                 }}
@@ -163,7 +195,8 @@ export default function DashboardCharts() {
                   fontWeight: 600,
                   fontFamily: typography.fontFamily.sans,
                   cursor: "pointer",
-                  background: viewMode === "monthly" ? colors.sidebar.bg : "transparent",
+                  background:
+                    viewMode === "monthly" ? colors.sidebar.bg : "transparent",
                   color: viewMode === "monthly" ? "#FFFFFF" : colors.text.muted,
                   transition: "all 0.18s ease",
                 }}
@@ -186,20 +219,73 @@ export default function DashboardCharts() {
             }}
           >
             <div>
-              <span style={{ fontSize: "11px", color: colors.text.muted, display: "block" }}>
-                {viewMode === "annual" ? "Highest Annual Revenue" : "Peak Monthly Revenue"}
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: colors.text.muted,
+                  display: "block",
+                }}
+              >
+                {viewMode === "annual"
+                  ? "Highest Annual Revenue"
+                  : "Peak Monthly Revenue"}
               </span>
-              <span style={{ fontSize: "14px", fontWeight: 700, color: colors.sidebar.bg }}>
-                {viewMode === "annual" ? "₹9.40 Lakhs (2025)" : "₹1.58 Lakhs (Aug)"}
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color: colors.sidebar.bg,
+                }}
+              >
+                {viewMode === "annual"
+                  ? earnings?.highestAnnualRevenue
+                    ? `₹${Number(
+                        earnings.highestAnnualRevenue.amount,
+                      ).toLocaleString(
+                        "en-IN",
+                      )} (${earnings.highestAnnualRevenue.year})`
+                    : "-"
+                  : earnings
+                    ? (() => {
+                        const peak = monthlyRevenueData.reduce(
+                          (max, item) =>
+                            item.revenue > max.revenue ? item : max,
+                          { month: "-", revenue: 0 },
+                        );
+
+                        return `₹${peak.revenue.toLocaleString("en-IN")} (${peak.month})`;
+                      })()
+                    : "-"}
               </span>
             </div>
-            <div style={{ width: "1px", height: "24px", background: colors.header.border }} />
+            <div
+              style={{
+                width: "1px",
+                height: "24px",
+                background: colors.header.border,
+              }}
+            />
             <div>
-              <span style={{ fontSize: "11px", color: colors.text.muted, display: "block" }}>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: colors.text.muted,
+                  display: "block",
+                }}
+              >
                 Growth Rate (YoY)
               </span>
-              <span style={{ fontSize: "14px", fontWeight: 700, color: "#10B981" }}>
-                +24.5% Growth
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color:
+                    (earnings?.growthRate ?? 0) >= 0 ? "#10B981" : "#DC2626",
+                }}
+              >
+                {earnings
+                  ? `${earnings.growthRate >= 0 ? "+" : ""}${earnings.growthRate}% Growth`
+                  : "-"}
               </span>
             </div>
           </div>
@@ -208,14 +294,35 @@ export default function DashboardCharts() {
           <div style={{ width: "100%", height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
               {viewMode === "annual" ? (
-                <AreaChart data={ANNUAL_EARNINGS_DATA} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart
+                  data={annualEarningsData}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                >
                   <defs>
-                    <linearGradient id="earningsGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={colors.brand.primary} stopOpacity={0.4} />
-                      <stop offset="95%" stopColor={colors.brand.primary} stopOpacity={0.0} />
+                    <linearGradient
+                      id="earningsGradient"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="5%"
+                        stopColor={colors.brand.primary}
+                        stopOpacity={0.4}
+                      />
+                      <stop
+                        offset="95%"
+                        stopColor={colors.brand.primary}
+                        stopOpacity={0.0}
+                      />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#E2E8F0"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="year"
                     axisLine={false}
@@ -244,9 +351,17 @@ export default function DashboardCharts() {
                               fontFamily: typography.fontFamily.sans,
                             }}
                           >
-                            <div style={{ fontWeight: 600, color: colors.brand.primary }}>{label}</div>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                color: colors.brand.primary,
+                              }}
+                            >
+                              {label}
+                            </div>
                             <div style={{ marginTop: "4px" }}>
-                              Earnings: <strong>₹{val.toLocaleString("en-IN")}</strong>
+                              Earnings:{" "}
+                              <strong>₹{val.toLocaleString("en-IN")}</strong>
                             </div>
                           </div>
                         );
@@ -264,8 +379,15 @@ export default function DashboardCharts() {
                   />
                 </AreaChart>
               ) : (
-                <BarChart data={MONTHLY_REVENUE_DATA} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                <BarChart
+                  data={monthlyRevenueData}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#E2E8F0"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="month"
                     axisLine={false}
@@ -294,9 +416,17 @@ export default function DashboardCharts() {
                               fontFamily: typography.fontFamily.sans,
                             }}
                           >
-                            <div style={{ fontWeight: 600, color: colors.brand.primary }}>Month: {label}</div>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                color: colors.brand.primary,
+                              }}
+                            >
+                              Month: {label}
+                            </div>
                             <div style={{ marginTop: "4px" }}>
-                              Revenue: <strong>₹{val.toLocaleString("en-IN")}</strong>
+                              Revenue:{" "}
+                              <strong>₹{val.toLocaleString("en-IN")}</strong>
                             </div>
                           </div>
                         );
@@ -304,7 +434,11 @@ export default function DashboardCharts() {
                       return null;
                     }}
                   />
-                  <Bar dataKey="revenue" fill={colors.sidebar.bg} radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="revenue"
+                    fill={colors.sidebar.bg}
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               )}
             </ResponsiveContainer>
@@ -357,7 +491,7 @@ export default function DashboardCharts() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={CITY_DISTRIBUTION_DATA}
+                  data={cityDistributionData}
                   cx="50%"
                   cy="50%"
                   innerRadius={50}
@@ -365,7 +499,7 @@ export default function DashboardCharts() {
                   paddingAngle={4}
                   dataKey="revenue"
                 >
-                  {CITY_DISTRIBUTION_DATA.map((entry, index) => (
+                  {cityDistributionData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -385,7 +519,9 @@ export default function DashboardCharts() {
                           }}
                         >
                           <div style={{ fontWeight: 600 }}>{data.name}</div>
-                          <div>Revenue: ₹{data.revenue.toLocaleString("en-IN")}</div>
+                          <div>
+                            Revenue: ₹{data.revenue.toLocaleString("en-IN")}
+                          </div>
                         </div>
                       );
                     }
@@ -406,14 +542,42 @@ export default function DashboardCharts() {
                 pointerEvents: "none",
               }}
             >
-              <div style={{ fontSize: "11px", color: colors.text.muted, fontWeight: 500 }}>5 Cities</div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: colors.text.primary }}>₹8.43L</div>
+              <div
+                style={{
+                  fontSize: "11px",
+                  color: colors.text.muted,
+                  fontWeight: 500,
+                }}
+              >
+                {cityDistributionData.length}{" "}
+                {cityDistributionData.length === 1 ? "City" : "Cities"}
+              </div>
+
+              <div
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color: colors.text.primary,
+                }}
+              >
+                ₹
+                {cityDistributionData
+                  .reduce((sum, city) => sum + city.revenue, 0)
+                  .toLocaleString("en-IN")}
+              </div>
             </div>
           </div>
 
           {/* City Legend list */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>
-            {CITY_DISTRIBUTION_DATA.map((city) => (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              marginTop: "4px",
+            }}
+          >
+            {cityDistributionData.map((city) => (
               <div
                 key={city.name}
                 style={{
@@ -424,7 +588,9 @@ export default function DashboardCharts() {
                   fontFamily: typography.fontFamily.sans,
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
                   <div
                     style={{
                       width: "10px",
@@ -433,7 +599,9 @@ export default function DashboardCharts() {
                       background: city.color,
                     }}
                   />
-                  <span style={{ fontWeight: 500, color: colors.text.primary }}>{city.name}</span>
+                  <span style={{ fontWeight: 500, color: colors.text.primary }}>
+                    {city.name}
+                  </span>
                 </div>
                 <span style={{ fontWeight: 600, color: colors.text.primary }}>
                   ₹{city.revenue.toLocaleString("en-IN")}

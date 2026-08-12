@@ -1,0 +1,1 @@
+ALTER TABLE "platform_users" ALTER COLUMN "username" SET NOT NULL;
