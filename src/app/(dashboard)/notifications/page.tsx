@@ -2,53 +2,138 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, RefreshCw, Clock, AlertTriangle, FileText, CheckCircle2, CalendarClock, ClipboardList, Hourglass, Layers, ChevronRight } from "lucide-react";
+import {
+  Bell,
+  RefreshCw,
+  Clock,
+  AlertTriangle,
+  FileText,
+  CheckCircle2,
+  CalendarClock,
+  ClipboardList,
+  Hourglass,
+  Layers,
+  ChevronRight,
+} from "lucide-react";
 import { colors, typography } from "@/lib/theme";
-import { useNotifications, type Notification, type NotificationType } from "@/hooks/useNotifications";
+import {
+  useNotifications,
+  type Notification,
+  type NotificationType,
+} from "@/hooks/useNotifications";
 
 //  Types
 type FilterTab = "all" | NotificationType;
-type UrgencyFilter = "all" | Notification["urgency"];
+type PriorityFilter = "all" | Notification["urgency"];
 
-// Urgency config 
+function getNotificationType(type: NotificationType) {
+  switch (type) {
+    case "renewal":
+      return "Renewal";
+
+    case "request":
+      return "Admin Request";
+
+    case "system":
+      return "System";
+
+    case "security":
+      return "Security";
+
+    default:
+      return "Notification";
+  }
+}
+
+// Urgency config
 const URGENCY_CONFIG: Record<
   Notification["urgency"],
   { label: string; color: string; bg: string; Icon: React.ElementType }
 > = {
-  high: { label: "High", color: "#EF4444", bg: "rgba(239,68,68,0.08)", Icon: AlertTriangle },
-  medium: { label: "Medium", color: "#F59E0B", bg: "rgba(245,158,11,0.08)", Icon: Clock },
-  low: { label: "Low", color: "#22C55E", bg: "rgba(34,197,94,0.08)", Icon: CheckCircle2 },
+  high: {
+    label: "High",
+    color: "#EF4444",
+    bg: "rgba(239,68,68,0.08)",
+    Icon: AlertTriangle,
+  },
+  medium: {
+    label: "Medium",
+    color: "#F59E0B",
+    bg: "rgba(245,158,11,0.08)",
+    Icon: Clock,
+  },
+  low: {
+    label: "Low",
+    color: "#22C55E",
+    bg: "rgba(34,197,94,0.08)",
+    Icon: CheckCircle2,
+  },
 };
 
 // ── Status badge for requests ─────────────────────────────────────────────────
 const STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  Pending: { color: "#F59E0B", bg: "rgba(245,158,11,0.1)" },
-  "In-progress": { color: "#2372A5", bg: "rgba(35,114,165,0.1)" },
-  Overdue: { color: "#EF4444", bg: "rgba(239,68,68,0.1)" },
-  "Due Soon": { color: "#F59E0B", bg: "rgba(245,158,11,0.1)" },
+  Overdue: {
+    color: "#EF4444",
+    bg: "rgba(239,68,68,0.1)",
+  },
+
+  "Due Soon": {
+    color: "#F59E0B",
+    bg: "rgba(245,158,11,0.1)",
+  },
+
+  New: {
+    color: "#2372A5",
+    bg: "rgba(35,114,165,0.1)",
+  },
+
+  Info: {
+    color: "#7C3AED",
+    bg: "rgba(124,58,237,0.1)",
+  },
 };
 
 // ── Single Notification Card ───────────────────────────────────────────────────
-function NotifCard({ notif, index }: { notif: Notification; index: number }) {
+function NotifCard({
+  notif,
+  index,
+  markAsRead,
+}: {
+  notif: Notification;
+  index: number;
+  markAsRead: (id: string) => Promise<void>;
+}) {
   const router = useRouter();
   const urg = URGENCY_CONFIG[notif.urgency];
   const UrgIcon = urg.Icon;
   const isRenewal = notif.type === "renewal";
 
   // Parse raw title to derive status label
-  const rawStatus = isRenewal
-    ? notif.urgency === "high" && notif.title.includes("Overdue")
-      ? "Overdue"
-      : "Due Soon"
-    : notif.title.includes("In Progress")
-      ? "In-progress"
-      : "Pending";
+  const rawStatus =
+    notif.type === "renewal"
+      ? notif.status === "OVERDUE"
+        ? "Overdue"
+        : "Due Soon"
+      : notif.status === "INFO"
+        ? "Info"
+        : notif.status === "NEW"
+          ? "New"
+          : notif.status;
 
-  const statusStyle = STATUS_STYLE[rawStatus] ?? { color: colors.text.muted, bg: colors.bg.page };
+  const statusStyle = STATUS_STYLE[rawStatus] ?? {
+    color: colors.text.muted,
+    bg: colors.bg.page,
+  };
 
   return (
     <div
-      onClick={() => router.push(notif.targetUrl)}
+      onClick={async () => {
+        if (!notif.isRead) {
+          await markAsRead(notif.id);
+        }
+
+        router.push(notif.targetUrl);
+      }}
       style={{
         background: "#FFFFFF",
         borderRadius: "14px",
@@ -60,7 +145,8 @@ function NotifCard({ notif, index }: { notif: Notification; index: number }) {
         boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
         animation: `cardSlide 0.22s ease-out both`,
         animationDelay: `${index * 0.04}s`,
-        transition: "box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease",
+        transition:
+          "box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease",
         cursor: "pointer",
       }}
       className="notif-card"
@@ -139,7 +225,9 @@ function NotifCard({ notif, index }: { notif: Notification; index: number }) {
               fontSize: "11px",
               fontWeight: typography.fontWeight.medium,
               color: isRenewal ? "#2372A5" : "#7C3AED",
-              background: isRenewal ? "rgba(35,114,165,0.08)" : "rgba(124,58,237,0.08)",
+              background: isRenewal
+                ? "rgba(35,114,165,0.08)"
+                : "rgba(124,58,237,0.08)",
               borderRadius: "6px",
               padding: "2px 8px",
               fontFamily: typography.fontFamily.sans,
@@ -159,7 +247,7 @@ function NotifCard({ notif, index }: { notif: Notification; index: number }) {
             lineHeight: "19px",
           }}
         >
-          {notif.subtitle}
+          {notif.message}
         </p>
       </div>
 
@@ -211,7 +299,11 @@ function NotifCard({ notif, index }: { notif: Notification; index: number }) {
       </div>
 
       {/* Chevron indicator */}
-      <ChevronRight size={18} color={colors.text.muted} style={{ flexShrink: 0 }} />
+      <ChevronRight
+        size={18}
+        color={colors.text.muted}
+        style={{ flexShrink: 0 }}
+      />
     </div>
   );
 }
@@ -288,9 +380,16 @@ function StatCard({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function NotificationsPage() {
-  const { notifications, totalCount, badgeLabel } = useNotifications();
+  const {
+    notifications,
+    totalCount,
+    badgeLabel,
+    markAsRead,
+    refresh,
+    loading,
+  } = useNotifications();
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
-  const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
 
   const renewalCount = notifications.filter((n) => n.type === "renewal").length;
   const requestCount = notifications.filter((n) => n.type === "request").length;
@@ -299,8 +398,9 @@ export default function NotificationsPage() {
   // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = notifications.filter((n) => {
     const typeMatch = activeTab === "all" || n.type === activeTab;
-    const urgMatch = urgencyFilter === "all" || n.urgency === urgencyFilter;
-    return typeMatch && urgMatch;
+    const priorityMatch =
+      priorityFilter === "all" || n.urgency === priorityFilter;
+    return typeMatch && priorityMatch;
   });
 
   // ── Tab config ────────────────────────────────────────────────────────────
@@ -310,7 +410,11 @@ export default function NotificationsPage() {
     { key: "request", label: "Admin Requests", count: requestCount },
   ];
 
-  const URGENCY_TABS: { key: UrgencyFilter; label: string; color: string }[] = [
+  const URGENCY_TABS: {
+    key: PriorityFilter;
+    label: string;
+    color: string;
+  }[] = [
     { key: "all", label: "All Priority", color: colors.text.muted },
     { key: "high", label: "High", color: "#EF4444" },
     { key: "medium", label: "Medium", color: "#F59E0B" },
@@ -331,7 +435,14 @@ export default function NotificationsPage() {
         }}
       >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "4px",
+            }}
+          >
             <div
               style={{
                 width: 38,
@@ -480,7 +591,9 @@ export default function NotificationsPage() {
                   border: "none",
                   cursor: "pointer",
                   fontSize: "13px",
-                  fontWeight: active ? typography.fontWeight.bold : typography.fontWeight.medium,
+                  fontWeight: active
+                    ? typography.fontWeight.bold
+                    : typography.fontWeight.medium,
                   fontFamily: typography.fontFamily.sans,
                   background: active ? colors.sidebar.bg : "transparent",
                   color: active ? "#fff" : colors.text.muted,
@@ -493,7 +606,9 @@ export default function NotificationsPage() {
                     style={{
                       fontSize: "11px",
                       fontWeight: typography.fontWeight.bold,
-                      background: active ? colors.brand.primary : colors.bg.page,
+                      background: active
+                        ? colors.brand.primary
+                        : colors.bg.page,
                       color: active ? colors.text.primary : colors.text.muted,
                       borderRadius: "6px",
                       padding: "1px 6px",
@@ -510,15 +625,18 @@ export default function NotificationsPage() {
         {/* Urgency filter */}
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           {URGENCY_TABS.map((u) => {
-            const active = urgencyFilter === u.key;
+            const active = priorityFilter === u.key;
+
             return (
               <button
                 key={u.key}
-                onClick={() => setUrgencyFilter(u.key)}
+                onClick={() => setPriorityFilter(u.key)}
                 style={{
                   padding: "5px 12px",
                   borderRadius: "8px",
-                  border: `1.5px solid ${active ? u.color : colors.header.border}`,
+                  border: `1.5px solid ${
+                    active ? u.color : colors.header.border
+                  }`,
                   cursor: "pointer",
                   fontSize: "12px",
                   fontWeight: typography.fontWeight.semibold,
@@ -585,7 +703,7 @@ export default function NotificationsPage() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {filtered.map((n, i) => (
-            <NotifCard key={n.id} notif={n} index={i} />
+            <NotifCard key={n.id} notif={n} index={i} markAsRead={markAsRead} />
           ))}
         </div>
       )}

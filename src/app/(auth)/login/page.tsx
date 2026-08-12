@@ -33,6 +33,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [selectedLang, setSelectedLang] = useState("English");
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
 
@@ -67,9 +68,36 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormData) => {
     setIsSubmitting(true);
-    // Simulate API authentication
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    router.push("/dashboard");
+    setLoginError("");
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: data.emailOrUsername.trim(),
+          password: data.password,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        setLoginError(result.message || "Invalid credentials");
+        return;
+      }
+
+      // Login successful
+      router.push("/dashboard");
+      router.refresh();
+    } catch (error) {
+      console.error("LOGIN_ERROR:", error);
+      setLoginError("Unable to connect to the server. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const onForgotSubmit = async (data: ForgotPasswordFormData) => {
@@ -190,7 +218,8 @@ export default function LoginPage() {
                     width: "100%",
                     textAlign: "left",
                     padding: "8px 14px",
-                    background: lang === selectedLang ? colors.bg.page : "transparent",
+                    background:
+                      lang === selectedLang ? colors.bg.page : "transparent",
                     border: "none",
                     cursor: "pointer",
                     fontSize: "13px",
@@ -248,7 +277,11 @@ export default function LoginPage() {
               border: `3px solid ${colors.brand.primary}`,
             }}
           >
-            <ShieldCheck size={36} color={colors.brand.primary} strokeWidth={1.8} />
+            <ShieldCheck
+              size={36}
+              color={colors.brand.primary}
+              strokeWidth={1.8}
+            />
           </div>
 
           {/* ─── LOGIN FORM ─────────────────────────────────────────────────── */}
@@ -280,7 +313,8 @@ export default function LoginPage() {
                   maxWidth: "320px",
                 }}
               >
-                Sign in to manage administrators, renewals, and platform-wide settings
+                Sign in to manage administrators, renewals, and platform-wide
+                settings
               </p>
 
               <form
@@ -293,7 +327,13 @@ export default function LoginPage() {
                 }}
               >
                 {/* Email/Username Field */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
                   <label
                     htmlFor="emailOrUsername"
                     style={{
@@ -303,7 +343,7 @@ export default function LoginPage() {
                       color: colors.login.title,
                     }}
                   >
-                    Email / Username
+                    Email
                   </label>
 
                   <div
@@ -328,7 +368,7 @@ export default function LoginPage() {
                     <input
                       id="emailOrUsername"
                       type="text"
-                      placeholder="admin@company.com or username"
+                      placeholder="admin@company.com"
                       {...register("emailOrUsername")}
                       style={{
                         width: "100%",
@@ -360,7 +400,13 @@ export default function LoginPage() {
                 </div>
 
                 {/* Password Field */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
                   <label
                     htmlFor="password"
                     style={{
@@ -420,7 +466,9 @@ export default function LoginPage() {
                         justifyContent: "center",
                         color: colors.login.inputIcon,
                       }}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
                     >
                       {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
                     </button>
@@ -440,6 +488,25 @@ export default function LoginPage() {
                       <AlertCircle size={13} />
                       {errors.password.message}
                     </span>
+                  )}
+                  {loginError && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        background: "#FEF2F2",
+                        border: "1px solid #FECACA",
+                        color: colors.status.error,
+                        fontFamily: typography.fontFamily.sans,
+                        fontSize: "13px",
+                      }}
+                    >
+                      <AlertCircle size={15} />
+                      {loginError}
+                    </div>
                   )}
 
                   {/* Forgot Password Link */}
@@ -545,14 +612,26 @@ export default function LoginPage() {
                       maxWidth: "320px",
                     }}
                   >
-                    Enter the email address linked to your Super Admin account. We&apos;ll send a password reset link.
+                    Enter the email address linked to your Super Admin account.
+                    We&apos;ll send a password reset link.
                   </p>
 
                   <form
                     onSubmit={handleForgotSubmit(onForgotSubmit)}
-                    style={{ width: "100%", display: "flex", flexDirection: "column", gap: "16px" }}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "16px",
+                    }}
                   >
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                      }}
+                    >
                       <label
                         htmlFor="forgotEmail"
                         style={{
@@ -562,7 +641,8 @@ export default function LoginPage() {
                           color: colors.login.title,
                         }}
                       >
-                        Admin Email Address <span style={{ color: "#EF4444" }}>*</span>
+                        Admin Email Address{" "}
+                        <span style={{ color: "#EF4444" }}>*</span>
                       </label>
 
                       <div
@@ -687,7 +767,8 @@ export default function LoginPage() {
                       maxWidth: "300px",
                     }}
                   >
-                    A password reset link has been sent to your admin email address. Please check your inbox.
+                    A password reset link has been sent to your admin email
+                    address. Please check your inbox.
                   </p>
 
                   <button

@@ -25,7 +25,7 @@ import {
   Building2,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
-import { INITIAL_ADMINS, AdminUser } from "@/types/superadmin";
+import { AdminUser } from "@/types/superadmin";
 import { useToast } from "@/components/ui/Toast";
 import { confirmDelete, confirmAdd } from "@/lib/notify";
 import { addAdminSchema, AddAdminFormData } from "./schema";
@@ -110,7 +110,7 @@ interface RenewalHistoryItem {
 const getRenewalHistory = (
   joinedDateStr: string,
   nextRenewalStr?: string,
-  amount: number = 0
+  amount: number = 0,
 ): RenewalHistoryItem[] => {
   if (!joinedDateStr) return [];
   const [jY, jM, jD] = joinedDateStr.split("-").map(Number);
@@ -143,20 +143,217 @@ const getRenewalHistory = (
   return history;
 };
 
+// ─── Admin API helpers ───────────────────────────────────────────────────────
+
+type ApiAdmin = {
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string;
+  city: string;
+  subdomain?: string | null;
+  renewalAmount: string | number;
+  joinedAt: string;
+  lastRenewalDate?: string | null;
+  nextRenewalDate: string;
+  status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  rolesAccess?: string[];
+};
+
+const mapApiAdminToAdminUser = (admin: ApiAdmin): AdminUser => {
+  const statusMap: Record<ApiAdmin["status"], AdminUser["status"]> = {
+    ACTIVE: "Active",
+    INACTIVE: "Inactive",
+    SUSPENDED: "Expired",
+  };
+
+  return {
+    id: admin.id,
+    name: admin.fullName,
+    phone: admin.phone,
+    email: admin.email,
+    city: admin.city,
+    subDomain: admin.subdomain || "",
+    renewalAmount: Number(admin.renewalAmount) || 0,
+    joinedDate: admin.joinedAt
+      ? new Date(admin.joinedAt).toISOString().slice(0, 10)
+      : "",
+    lastRenewalDate: admin.lastRenewalDate
+      ? new Date(admin.lastRenewalDate).toISOString().slice(0, 10)
+      : admin.joinedAt
+        ? new Date(admin.joinedAt).toISOString().slice(0, 10)
+        : "",
+    nextRenewalDate: admin.nextRenewalDate
+      ? new Date(admin.nextRenewalDate).toISOString().slice(0, 10)
+      : "",
+    rolesAccess: admin.rolesAccess || [],
+    status: statusMap[admin.status] || "Inactive",
+  };
+};
+
 export default function AdminPage() {
   useEffect(() => {
     document.title = META_CONSTANTS.admin.fullTitle;
   }, []);
 
   const { showToast } = useToast();
-  const [admins, setAdmins] = useState<AdminUser[]>(INITIAL_ADMINS);
+  const [admins, setAdmins] = useState<AdminUser[]>([]);
+  const [isLoadingAdmins, setIsLoadingAdmins] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
+
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
+  const [originalModules, setOriginalModules] = useState<string[]>([]);
+  const [availableModules, setAvailableModules] = useState<
+    {
+      id: string;
+      name: string;
+      key: string;
+    }[]
+  >([]);
+  const [isSavingModules, setIsSavingModules] = useState(false);
 
   // Modals / View state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedAdmin, setSelectedAdmin] = useState<AdminUser | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+
+  // ─── Fetch Admins ─────────────────────────────────────────────────────────────
+
+  const fetchAdmins = async () => {
+    try {
+      setIsLoadingAdmins(true);
+
+      const response = await fetch("/api/admins", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to fetch admins");
+      }
+
+      const apiAdmins: ApiAdmin[] = result.data?.data || [];
+
+      setAdmins(apiAdmins.map(mapApiAdminToAdminUser));
+    } catch (error) {
+      console.error("FETCH_ADMINS_ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to load admins",
+        "error",
+      );
+
+      setAdmins([]);
+    } finally {
+      setIsLoadingAdmins(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAdmins();
+    fetchAvailableModules();
+  }, []);
+
+  const fetchAdminModules = async (adminId: string) => {
+    try {
+      const response = await fetch(`/api/admins/${adminId}/modules`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to fetch admin modules");
+      }
+
+      const modules = Array.isArray(result.data) ? result.data : [];
+
+      // These are ONLY the modules currently assigned
+      const moduleIds = modules.map(
+        (module: { moduleId: string }) => module.moduleId,
+      );
+
+      // Store assigned modules
+      setOriginalModules(moduleIds);
+      setSelectedModules(moduleIds);
+
+      // IMPORTANT:
+      // DO NOT call setAvailableModules() here.
+      //
+      // availableModules must come from /api/modules,
+      // because that API returns ALL available modules.
+    } catch (error) {
+      console.error("FETCH_ADMIN_MODULES_ERROR:", error);
+
+      setOriginalModules([]);
+      setSelectedModules([]);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to load module access",
+        "error",
+      );
+    }
+  };
+
+  const fetchAssignedModules = async (adminId: string) => {
+    try {
+      const response = await fetch(`/api/admins/${adminId}/modules`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to fetch assigned modules");
+      }
+
+      return Array.isArray(result.data) ? result.data : [];
+    } catch (error) {
+      console.error("FETCH_ASSIGNED_MODULES_ERROR:", error);
+
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to load assigned modules",
+        "error",
+      );
+
+      return [];
+    }
+  };
+
+  const fetchAvailableModules = async () => {
+    try {
+      const response = await fetch("/api/modules", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to fetch modules");
+      }
+
+      setAvailableModules(result.data || []);
+    } catch (error) {
+      console.error("FETCH_MODULES_ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to load modules",
+        "error",
+      );
+    }
+  };
 
   // ── react-hook-form for Add Admin ──────────────────────────────────────────
   const {
@@ -180,11 +377,16 @@ export default function AdminPage() {
   });
 
   // Watch rolesAccess for real-time checkbox state in the Add modal
-  const watchedRoles = useWatch({ control, name: "rolesAccess", defaultValue: [] });
+  const watchedRoles = useWatch({
+    control,
+    name: "rolesAccess",
+    defaultValue: [],
+  });
 
   // Filtered Admins by search and city
   const filteredAdmins = admins.filter((a) => {
-    const matchesCity = selectedCityFilter === "All" || a.city === selectedCityFilter;
+    const matchesCity =
+      selectedCityFilter === "All" || a.city === selectedCityFilter;
     const matchesSearch =
       a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -193,7 +395,8 @@ export default function AdminPage() {
     return matchesCity && matchesSearch;
   });
 
-  // ── Handle Add Admin ───────────────────────────────────────────────────────
+  // ── Handle Add Admin ─────────────────────────────────────────────────────────
+
   const onAddSubmit = async (data: AddAdminFormData) => {
     setIsAddModalOpen(false);
 
@@ -205,54 +408,231 @@ export default function AdminPage() {
     }
 
     const joined = data.joinedDate || getTodayDateStr();
-    const nextRenewal = data.nextRenewalDate || calculateNextRenewalDate(joined);
+    const nextRenewal =
+      data.nextRenewalDate || calculateNextRenewalDate(joined);
 
-    const created: AdminUser = {
-      id: `ADM-00${admins.length + 1}`,
-      name: data.name,
-      phone: data.phone,
-      email: data.email,
-      joinedDate: joined,
-      lastRenewalDate: joined,
-      nextRenewalDate: nextRenewal,
-      subDomain:
-        data.subDomain ||
-        `${data.name.toLowerCase().replace(/\s+/g, "")}.ticketing.com`,
-      renewalAmount: data.renewalAmount,
-      city: data.city,
-      rolesAccess: data.rolesAccess,
-      status: "Active",
-    };
+    try {
+      setIsSaving(true);
 
-    setAdmins([created, ...admins]);
-    reset();
-    showToast(`Admin "${created.name}" added successfully!`, "success");
+      const response = await fetch("/api/admins", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fullName: data.name.trim(),
+          phone: data.phone.trim(),
+          email: data.email.trim().toLowerCase(),
+          city: data.city.trim(),
+          subdomain:
+            data.subDomain?.trim() ||
+            `${data.name.toLowerCase().replace(/\s+/g, "")}.ticketing.com`,
+          renewalAmount: String(data.renewalAmount),
+          joinedAt: joined,
+          nextRenewalDate: nextRenewal,
+          status: "ACTIVE",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to create admin");
+      }
+
+      const createdAdmin = mapApiAdminToAdminUser(result.data);
+
+      setAdmins((prev) => [createdAdmin, ...prev]);
+
+      reset();
+
+      showToast(`Admin "${createdAdmin.name}" added successfully!`, "success");
+    } catch (error) {
+      console.error("CREATE_ADMIN_ERROR:", error);
+
+      setIsAddModalOpen(true);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to create admin",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ── Handle Edit Admin ──────────────────────────────────────────────────────
-  const handleSaveEdit = () => {
+  // ── Handle Edit Admin ─────────────────────────────────────────────────────────
+
+  const handleSaveEdit = async () => {
     if (!selectedAdmin) return;
-    setAdmins(admins.map((a) => (a.id === selectedAdmin.id ? selectedAdmin : a)));
-    setIsEditing(false);
-    showToast(`Admin "${selectedAdmin.name}" updated successfully!`, "success");
+
+    try {
+      setIsSaving(true);
+
+      const response = await fetch(`/api/admins/${selectedAdmin.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fullName: selectedAdmin.name.trim(),
+          phone: selectedAdmin.phone.trim(),
+          email: selectedAdmin.email.trim().toLowerCase(),
+          city: selectedAdmin.city.trim(),
+          subdomain: selectedAdmin.subDomain.trim() || null,
+          renewalAmount: String(selectedAdmin.renewalAmount),
+          joinedAt: selectedAdmin.joinedDate,
+          nextRenewalDate: selectedAdmin.nextRenewalDate,
+          status:
+            selectedAdmin.status === "Active"
+              ? "ACTIVE"
+              : selectedAdmin.status === "Inactive"
+                ? "INACTIVE"
+                : "SUSPENDED",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to update admin");
+      }
+
+      await saveAdminModules(
+        selectedAdmin.id,
+        originalModules,
+        selectedModules,
+      );
+
+      const updatedAdmin = mapApiAdminToAdminUser(result.data);
+
+      setAdmins((prev) =>
+        prev.map((admin) =>
+          admin.id === updatedAdmin.id ? updatedAdmin : admin,
+        ),
+      );
+
+      setSelectedAdmin(updatedAdmin);
+      setIsEditing(false);
+
+      showToast(
+        `Admin "${updatedAdmin.name}" updated successfully!`,
+        "success",
+      );
+    } catch (error) {
+      console.error("UPDATE_ADMIN_ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to update admin",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // ── Handle Delete Admin ────────────────────────────────────────────────────
-  const handleDeleteAdmin = async (id: string) => {
-    const target = admins.find((a) => a.id === id);
-    const prevAdmin = selectedAdmin;
+  const saveAdminModules = async (
+    adminId: string,
+    previousModules: string[],
+    newModules: string[],
+  ) => {
+    const previousSet = new Set(previousModules);
+    const newSet = new Set(newModules);
 
-    setSelectedAdmin(null);
+    const modulesToGrant = newModules.filter(
+      (moduleId) => !previousSet.has(moduleId),
+    );
+
+    const modulesToRevoke = previousModules.filter(
+      (moduleId) => !newSet.has(moduleId),
+    );
+
+    // Grant newly selected modules
+    for (const moduleId of modulesToGrant) {
+      const response = await fetch(`/api/admins/${adminId}/modules`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          moduleId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to grant module access");
+      }
+    }
+
+    // Revoke unselected modules
+    for (const moduleId of modulesToRevoke) {
+      const response = await fetch(`/api/admins/${adminId}/modules`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          moduleId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to revoke module access");
+      }
+    }
+  };
+
+  // ── Handle Delete Admin ──────────────────────────────────────────────────────
+
+  const handleDeleteAdmin = async (id: string) => {
+    const target = admins.find((admin) => admin.id === id);
+    const prevAdmin = selectedAdmin;
 
     const confirmed = await confirmDelete(`admin "${target?.name ?? id}"`);
 
     if (!confirmed) {
-      setSelectedAdmin(prevAdmin);
       return;
     }
 
-    setAdmins(admins.filter((a) => a.id !== id));
-    showToast(`Admin "${target?.name ?? id}" has been deleted.`, "error");
+    try {
+      setIsSaving(true);
+
+      const response = await fetch(`/api/admins/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to delete admin");
+      }
+
+      setAdmins((prev) => prev.filter((admin) => admin.id !== id));
+
+      setSelectedAdmin(null);
+      setIsEditing(false);
+
+      showToast(`Admin "${target?.name ?? id}" has been deleted.`, "error");
+    } catch (error) {
+      console.error("DELETE_ADMIN_ERROR:", error);
+
+      setSelectedAdmin(prevAdmin);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to delete admin",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ── DataTable Columns Configuration ───────────────────────────────────────
@@ -304,9 +684,54 @@ export default function AdminPage() {
       align: "right",
       cell: (admin) => (
         <button
-          onClick={() => {
-            setSelectedAdmin(admin);
-            setIsEditing(false);
+          onClick={async () => {
+            try {
+              setIsSaving(true);
+              setIsEditing(false);
+
+              // 1. Fetch admin details
+              const adminResponse = await fetch(`/api/admins/${admin.id}`, {
+                method: "GET",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                cache: "no-store",
+              });
+
+              const adminResult = await adminResponse.json();
+
+              if (!adminResponse.ok || !adminResult.success) {
+                throw new Error(adminResult.message || "Failed to fetch admin");
+              }
+
+              // 2. Fetch assigned modules
+              const modules = await fetchAssignedModules(admin.id);
+
+              // 3. Convert API module names into rolesAccess
+              const rolesAccess = modules.map(
+                (module: { moduleId: string; name: string; key: string }) =>
+                  module.name,
+              );
+
+              // 4. Set admin + assigned roles
+              const mappedAdmin = mapApiAdminToAdminUser(adminResult.data);
+
+              setSelectedAdmin({
+                ...mappedAdmin,
+                rolesAccess,
+              });
+            } catch (error) {
+              console.error("GET_ADMIN_ERROR:", error);
+
+              showToast(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to fetch admin details",
+                "error",
+              );
+            } finally {
+              setIsSaving(false);
+            }
           }}
           style={{
             display: "inline-flex",
@@ -335,7 +760,7 @@ export default function AdminPage() {
     const pastRenewals = getRenewalHistory(
       selectedAdmin.joinedDate,
       selectedAdmin.nextRenewalDate,
-      selectedAdmin.renewalAmount
+      selectedAdmin.renewalAmount,
     );
 
     return (
@@ -380,7 +805,9 @@ export default function AdminPage() {
             </button>
 
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
                 <h1
                   style={{
                     fontFamily: typography.fontFamily.sans,
@@ -451,6 +878,7 @@ export default function AdminPage() {
                 </button>
                 <button
                   onClick={handleSaveEdit}
+                  disabled={isSaving}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -467,14 +895,19 @@ export default function AdminPage() {
                     boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
                   }}
                 >
-                  <Check size={16} />
-                  <span>Save Changes</span>
+                  {isSaving ? "Creating..." : "Create Admin"}
                 </button>
               </>
             ) : (
               <>
                 <button
-                  onClick={() => setIsEditing(true)}
+                  onClick={async () => {
+                    setIsEditing(true);
+
+                    if (selectedAdmin) {
+                      await fetchAdminModules(selectedAdmin.id);
+                    }
+                  }}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -532,28 +965,50 @@ export default function AdminPage() {
               gap: "20px",
             }}
           >
-            <h2 style={{ fontSize: "16px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+            <h2
+              style={{
+                fontSize: "16px",
+                margin: 0,
+                fontWeight: 700,
+                fontFamily: typography.fontFamily.sans,
+                color: colors.text.primary,
+              }}
+            >
               Edit Admin Information
             </h2>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Full Name</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Full Name
+                </label>
                 <input
                   type="text"
                   value={selectedAdmin.name}
-                  onChange={(e) => setSelectedAdmin({ ...selectedAdmin, name: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedAdmin({ ...selectedAdmin, name: e.target.value })
+                  }
                   style={inputStyle(false)}
                 />
               </div>
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>City</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  City
+                </label>
                 <input
                   type="text"
                   list="admin-city-list"
                   placeholder="Select or type city..."
                   value={selectedAdmin.city}
-                  onChange={(e) => setSelectedAdmin({ ...selectedAdmin, city: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedAdmin({ ...selectedAdmin, city: e.target.value })
+                  }
                   style={{ ...inputStyle(false), background: "#FFFFFF" }}
                 />
                 <datalist id="admin-city-list">
@@ -566,9 +1021,17 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Phone Number</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Phone Number
+                </label>
                 <input
                   type="text"
                   maxLength={10}
@@ -593,35 +1056,58 @@ export default function AdminPage() {
                 />
               </div>
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Email Address</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Email Address
+                </label>
                 <input
                   type="email"
                   value={selectedAdmin.email}
-                  onChange={(e) => setSelectedAdmin({ ...selectedAdmin, email: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedAdmin({
+                      ...selectedAdmin,
+                      email: e.target.value,
+                    })
+                  }
                   style={inputStyle(false)}
                 />
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Sub-Domain</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Sub-Domain
+                </label>
                 <input
                   type="text"
                   value={selectedAdmin.subDomain}
-                  onChange={(e) => setSelectedAdmin({ ...selectedAdmin, subDomain: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedAdmin({
+                      ...selectedAdmin,
+                      subDomain: e.target.value,
+                    })
+                  }
                   style={inputStyle(false)}
                 />
               </div>
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Renewal Amount (₹)</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Renewal Amount (₹)
+                </label>
                 <input
                   type="text"
                   value={selectedAdmin.renewalAmount}
                   onChange={(e) =>
                     setSelectedAdmin({
                       ...selectedAdmin,
-                      renewalAmount: Number(e.target.value.replace(/\D/g, "")) || 0,
+                      renewalAmount:
+                        Number(e.target.value.replace(/\D/g, "")) || 0,
                     })
                   }
                   style={inputStyle(false)}
@@ -630,9 +1116,17 @@ export default function AdminPage() {
             </div>
 
             {/* Joined Date & Next Renewal Date */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Joined Date</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Joined Date
+                </label>
                 <input
                   type="date"
                   value={selectedAdmin.joinedDate || ""}
@@ -642,14 +1136,17 @@ export default function AdminPage() {
                     setSelectedAdmin({
                       ...selectedAdmin,
                       joinedDate: newJoined,
-                      nextRenewalDate: autoNextRenewal || selectedAdmin.nextRenewalDate,
+                      nextRenewalDate:
+                        autoNextRenewal || selectedAdmin.nextRenewalDate,
                     });
                   }}
                   style={inputStyle(false)}
                 />
               </div>
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Next Renewal Date</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Next Renewal Date
+                </label>
                 <input
                   type="date"
                   value={selectedAdmin.nextRenewalDate || ""}
@@ -665,7 +1162,13 @@ export default function AdminPage() {
             </div>
 
             {/* Access Roles (checkbox grid) */}
-            <div style={{ border: `1.5px solid ${colors.login.inputBorder}`, borderRadius: "10px", overflow: "hidden" }}>
+            <div
+              style={{
+                border: `1.5px solid ${colors.login.inputBorder}`,
+                borderRadius: "10px",
+                overflow: "hidden",
+              }}
+            >
               <div
                 style={{
                   background: colors.sidebar.bg,
@@ -675,7 +1178,14 @@ export default function AdminPage() {
                   justifyContent: "space-between",
                 }}
               >
-                <span style={{ fontSize: "13px", fontWeight: 700, color: "#FFFFFF", fontFamily: typography.fontFamily.sans }}>
+                <span
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#FFFFFF",
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
                   Access Roles
                 </span>
                 <label
@@ -693,34 +1203,55 @@ export default function AdminPage() {
                 >
                   <input
                     type="checkbox"
-                    checked={selectedAdmin.rolesAccess.length === ALL_ROLES.length}
-                    onChange={(e) =>
-                      setSelectedAdmin({
-                        ...selectedAdmin,
-                        rolesAccess: e.target.checked ? [...ALL_ROLES] : [],
-                      })
-                    }
-                    style={{ accentColor: colors.brand.primary, width: "14px", height: "14px" }}
+                    checked={selectedModules.includes(module.id)}
+                    onChange={(e) => {
+                      setSelectedModules((prev) =>
+                        e.target.checked
+                          ? [...prev, module.id]
+                          : prev.filter((id) => id !== module.id),
+                      );
+                    }}
+                    style={{
+                      accentColor: colors.brand.primary,
+                      width: "14px",
+                      height: "14px",
+                    }}
                   />
                   Select All
                 </label>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0", background: "#FFFFFF" }}>
-                {ALL_ROLES.map((role, idx) => {
-                  const isChecked = selectedAdmin.rolesAccess.includes(role);
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "0",
+                  background: "#FFFFFF",
+                }}
+              >
+                {availableModules.map((module, idx) => {
+                  const isChecked = selectedModules.includes(module.id);
+
                   return (
                     <label
-                      key={role}
+                      key={module.id}
                       style={{
                         display: "flex",
                         alignItems: "center",
                         gap: "8px",
                         padding: "10px 16px",
                         cursor: "pointer",
-                        borderTop: idx >= 2 ? `1px solid ${colors.header.border}` : undefined,
-                        borderRight: idx % 2 === 0 ? `1px solid ${colors.header.border}` : undefined,
-                        background: isChecked ? "rgba(35, 114, 165, 0.06)" : "#FFFFFF",
+                        borderTop:
+                          idx >= 2
+                            ? `1px solid ${colors.header.border}`
+                            : undefined,
+                        borderRight:
+                          idx % 2 === 0
+                            ? `1px solid ${colors.header.border}`
+                            : undefined,
+                        background: isChecked
+                          ? "rgba(35, 114, 165, 0.06)"
+                          : "#FFFFFF",
                         transition: "background 0.15s",
                         userSelect: "none",
                         fontFamily: typography.fontFamily.sans,
@@ -730,36 +1261,62 @@ export default function AdminPage() {
                         type="checkbox"
                         checked={isChecked}
                         onChange={(e) => {
-                          const updated = e.target.checked
-                            ? [...selectedAdmin.rolesAccess, role]
-                            : selectedAdmin.rolesAccess.filter((r) => r !== role);
-                          setSelectedAdmin({ ...selectedAdmin, rolesAccess: updated });
+                          setSelectedModules((prev) =>
+                            e.target.checked
+                              ? [...prev, module.id]
+                              : prev.filter((id) => id !== module.id),
+                          );
                         }}
-                        style={{ accentColor: colors.brand.accent, width: "14px", height: "14px", flexShrink: 0 }}
+                        style={{
+                          accentColor: colors.brand.accent,
+                          width: "14px",
+                          height: "14px",
+                          flexShrink: 0,
+                        }}
                       />
+
                       <span
                         style={{
                           fontSize: "13px",
                           fontWeight: isChecked ? 600 : 400,
-                          color: isChecked ? colors.brand.accent : colors.text.primary,
+                          color: isChecked
+                            ? colors.brand.accent
+                            : colors.text.primary,
                         }}
                       >
-                        {role}
+                        {module.name}
                       </span>
                     </label>
                   );
                 })}
               </div>
-              <div style={{ padding: "8px 16px", background: "#F8FAFC", borderTop: `1px solid ${colors.header.border}`, fontSize: "12px", color: colors.text.muted }}>
-                {selectedAdmin.rolesAccess.length} of {ALL_ROLES.length} roles selected
+              <div
+                style={{
+                  padding: "8px 16px",
+                  background: "#F8FAFC",
+                  borderTop: `1px solid ${colors.header.border}`,
+                  fontSize: "12px",
+                  color: colors.text.muted,
+                }}
+              >
+                {selectedModules.length} of {availableModules.length} modules
+                selected
               </div>
             </div>
           </div>
         ) : (
           /* ── Full Details View (Read Only Cards Layout) ── */
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "20px" }}
+          >
             {/* Grid of info cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "20px",
+              }}
+            >
               {/* Contact Info Card */}
               <div
                 style={{
@@ -772,37 +1329,120 @@ export default function AdminPage() {
                   gap: "14px",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    paddingBottom: "12px",
+                    borderBottom: `1px solid ${colors.header.border}`,
+                  }}
+                >
                   <Building size={18} color={colors.brand.accent} />
-                  <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+                  <h3
+                    style={{
+                      fontSize: "15px",
+                      margin: 0,
+                      fontWeight: 700,
+                      fontFamily: typography.fontFamily.sans,
+                      color: colors.text.primary,
+                    }}
+                  >
                     Admin Contact Details
                   </h3>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "14px",
+                  }}
+                >
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <Phone size={12} /> Phone Number
                     </span>
-                    <strong style={{ fontSize: "14px", marginTop: "2px", display: "block" }}>{selectedAdmin.phone}</strong>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
+                      {selectedAdmin.phone}
+                    </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <Mail size={12} /> Email Address
                     </span>
-                    <strong style={{ fontSize: "14px", marginTop: "2px", display: "block" }}>{selectedAdmin.email}</strong>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
+                      {selectedAdmin.email}
+                    </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <MapPin size={12} /> City Location
                     </span>
-                    <strong style={{ fontSize: "14px", marginTop: "2px", display: "block", color: colors.brand.accent }}>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                        color: colors.brand.accent,
+                      }}
+                    >
                       {selectedAdmin.city}
                     </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "block" }}>Account Status</span>
-                    <span style={{ fontSize: "13px", fontWeight: 700, color: colors.status.success }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "block",
+                      }}
+                    >
+                      Account Status
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        color: colors.status.success,
+                      }}
+                    >
                       {selectedAdmin.status}
                     </span>
                   </div>
@@ -821,39 +1461,122 @@ export default function AdminPage() {
                   gap: "14px",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    paddingBottom: "12px",
+                    borderBottom: `1px solid ${colors.header.border}`,
+                  }}
+                >
                   <Globe size={18} color={colors.brand.accent} />
-                  <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+                  <h3
+                    style={{
+                      fontSize: "15px",
+                      margin: 0,
+                      fontWeight: 700,
+                      fontFamily: typography.fontFamily.sans,
+                      color: colors.text.primary,
+                    }}
+                  >
                     Domain & Renewal Information
                   </h3>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "14px",
+                  }}
+                >
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "block" }}>Sub-domain</span>
-                    <strong style={{ fontSize: "14px", color: colors.brand.accent, marginTop: "2px", display: "block" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "block",
+                      }}
+                    >
+                      Sub-domain
+                    </span>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        color: colors.brand.accent,
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
                       {selectedAdmin.subDomain}
                     </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "block" }}>Renewal Amount</span>
-                    <strong style={{ fontSize: "14px", color: colors.text.primary, marginTop: "2px", display: "block" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "block",
+                      }}
+                    >
+                      Renewal Amount
+                    </span>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        color: colors.text.primary,
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
                       ₹{selectedAdmin.renewalAmount.toLocaleString("en-IN")}
                     </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <Calendar size={12} /> Joined Date
                     </span>
-                    <span style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px", display: "block" }}>
+                    <span
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
                       {selectedAdmin.joinedDate}
                     </span>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <Calendar size={12} /> Next Renewal Date
                     </span>
-                    <span style={{ fontSize: "13px", fontWeight: 700, color: colors.brand.accent, marginTop: "2px", display: "block" }}>
+                    <span
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        color: colors.brand.accent,
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
                       {selectedAdmin.nextRenewalDate}
                     </span>
                   </div>
@@ -873,14 +1596,38 @@ export default function AdminPage() {
                 gap: "14px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingBottom: "12px",
+                  borderBottom: `1px solid ${colors.header.border}`,
+                }}
+              >
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "10px" }}
+                >
                   <History size={18} color={colors.brand.accent} />
-                  <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+                  <h3
+                    style={{
+                      fontSize: "15px",
+                      margin: 0,
+                      fontWeight: 700,
+                      fontFamily: typography.fontFamily.sans,
+                      color: colors.text.primary,
+                    }}
+                  >
                     Past Renewals History Log ({pastRenewals.length})
                   </h3>
                 </div>
-                <span style={{ fontSize: "12px", color: colors.text.muted, fontFamily: typography.fontFamily.sans }}>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: colors.text.muted,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
                   Annual cycle starting from {selectedAdmin.joinedDate}
                 </span>
               </div>
@@ -890,7 +1637,9 @@ export default function AdminPage() {
                   {
                     header: "Renewal Cycle",
                     cell: (item) => (
-                      <span style={{ fontWeight: 700, color: colors.brand.accent }}>
+                      <span
+                        style={{ fontWeight: 700, color: colors.brand.accent }}
+                      >
                         Renewal #{item.count}
                       </span>
                     ),
@@ -902,7 +1651,9 @@ export default function AdminPage() {
                   {
                     header: "Amount Paid",
                     cell: (item) => (
-                      <span style={{ fontWeight: 600, color: colors.text.primary }}>
+                      <span
+                        style={{ fontWeight: 600, color: colors.text.primary }}
+                      >
                         ₹{item.amount.toLocaleString("en-IN")}
                       </span>
                     ),
@@ -945,10 +1696,27 @@ export default function AdminPage() {
                 gap: "14px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  paddingBottom: "12px",
+                  borderBottom: `1px solid ${colors.header.border}`,
+                }}
+              >
                 <ShieldCheck size={18} color={colors.brand.accent} />
-                <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
-                  Assigned Module Access Roles ({selectedAdmin.rolesAccess.length})
+                <h3
+                  style={{
+                    fontSize: "15px",
+                    margin: 0,
+                    fontWeight: 700,
+                    fontFamily: typography.fontFamily.sans,
+                    color: colors.text.primary,
+                  }}
+                >
+                  Assigned Module Access Roles (
+                  {selectedAdmin.rolesAccess.length})
                 </h3>
               </div>
 
@@ -1011,7 +1779,8 @@ export default function AdminPage() {
               margin: "4px 0 0 0",
             }}
           >
-            Manage platform admins — their domains, permissions, and renewal details.
+            Manage platform admins — their domains, permissions, and renewal
+            details.
           </p>
         </div>
 
@@ -1055,7 +1824,14 @@ export default function AdminPage() {
         {/* Filter by City (First) */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Filter size={16} color={colors.brand.accent} />
-          <span style={{ fontSize: "13px", fontWeight: 600, color: colors.text.muted, fontFamily: typography.fontFamily.sans }}>
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: colors.text.muted,
+              fontFamily: typography.fontFamily.sans,
+            }}
+          >
             Filter by City:
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -1126,7 +1902,9 @@ export default function AdminPage() {
         data={filteredAdmins}
         keyExtractor={(a) => a.id}
         pageSize={5}
-        emptyMessage="No admin records found."
+        emptyMessage={
+          isLoadingAdmins ? "Loading admins..." : "No admin records found."
+        }
       />
 
       {/* ── Add Admin Modal ── */}
@@ -1164,12 +1942,27 @@ export default function AdminPage() {
                 justifyContent: "space-between",
               }}
             >
-              <h2 style={{ fontSize: "18px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans }}>
+              <h2
+                style={{
+                  fontSize: "18px",
+                  margin: 0,
+                  fontWeight: 700,
+                  fontFamily: typography.fontFamily.sans,
+                }}
+              >
                 Add New Admin
               </h2>
               <button
-                onClick={() => { setIsAddModalOpen(false); reset(); }}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#FFFFFF" }}
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  reset();
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#FFFFFF",
+                }}
               >
                 <X size={20} />
               </button>
@@ -1177,11 +1970,25 @@ export default function AdminPage() {
 
             <form
               onSubmit={handleSubmit(onAddSubmit)}
-              style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "14px", maxHeight: "70vh", overflowY: "auto" }}
+              style={{
+                padding: "24px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
+                maxHeight: "70vh",
+                overflowY: "auto",
+              }}
             >
               {/* Full Name */}
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
                   Full Name <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
@@ -1193,10 +2000,23 @@ export default function AdminPage() {
                 <FieldError message={errors.name?.message} />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                }}
+              >
                 {/* Phone */}
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
                     Phone Number <span style={{ color: "#EF4444" }}>*</span>
                   </label>
                   <input
@@ -1215,7 +2035,9 @@ export default function AdminPage() {
                       }
                     }}
                     onInput={(e) => {
-                      const val = e.currentTarget.value.replace(/\D/g, "").slice(0, 10);
+                      const val = e.currentTarget.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10);
                       e.currentTarget.value = val;
                       setValue("phone", val, { shouldValidate: true });
                     }}
@@ -1226,7 +2048,14 @@ export default function AdminPage() {
 
                 {/* City */}
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
                     City <span style={{ color: "#EF4444" }}>*</span>
                   </label>
                   <input
@@ -1234,7 +2063,10 @@ export default function AdminPage() {
                     list="admin-add-city-list"
                     placeholder="Select or type city..."
                     {...register("city")}
-                    style={{ ...inputStyle(!!errors.city), background: "#FFFFFF" }}
+                    style={{
+                      ...inputStyle(!!errors.city),
+                      background: "#FFFFFF",
+                    }}
                   />
                   <datalist id="admin-add-city-list">
                     <option value="Jaipur" />
@@ -1249,7 +2081,14 @@ export default function AdminPage() {
 
               {/* Email */}
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
                   Email Address <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
@@ -1261,10 +2100,23 @@ export default function AdminPage() {
                 <FieldError message={errors.email?.message} />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                }}
+              >
                 {/* Sub-domain */}
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
                     Sub-domain
                   </label>
                   <input
@@ -1278,8 +2130,16 @@ export default function AdminPage() {
 
                 {/* Renewal Amount */}
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
-                    Renewal Amount (₹) <span style={{ color: "#EF4444" }}>*</span>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
+                    Renewal Amount (₹){" "}
+                    <span style={{ color: "#EF4444" }}>*</span>
                   </label>
                   <input
                     type="text"
@@ -1297,10 +2157,32 @@ export default function AdminPage() {
               </div>
 
               {/* Joined Date & Next Renewal Date (Auto-filled & Read-Only during creation) */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                }}
+              >
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
-                    Joined Date <span style={{ fontSize: "11px", color: colors.text.muted, fontWeight: 400 }}>(Auto-filled)</span>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
+                    Joined Date{" "}
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: colors.text.muted,
+                        fontWeight: 400,
+                      }}
+                    >
+                      (Auto-filled)
+                    </span>
                   </label>
                   <input
                     type="date"
@@ -1317,8 +2199,24 @@ export default function AdminPage() {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
-                    Next Renewal Date <span style={{ fontSize: "11px", color: colors.text.muted, fontWeight: 400 }}>(Auto-calculated)</span>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
+                    Next Renewal Date{" "}
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: colors.text.muted,
+                        fontWeight: 400,
+                      }}
+                    >
+                      (Auto-calculated)
+                    </span>
                   </label>
                   <input
                     type="date"
@@ -1337,7 +2235,14 @@ export default function AdminPage() {
 
               {/* Access Roles */}
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
                   Access Roles <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <div
@@ -1357,33 +2262,75 @@ export default function AdminPage() {
                       justifyContent: "space-between",
                     }}
                   >
-                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#FFFFFF", fontFamily: typography.fontFamily.sans }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        color: "#FFFFFF",
+                        fontFamily: typography.fontFamily.sans,
+                      }}
+                    >
                       Module Access
                     </span>
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "11px", color: colors.brand.primary, fontWeight: 600, userSelect: "none" }}>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        cursor: "pointer",
+                        fontSize: "11px",
+                        color: colors.brand.primary,
+                        fontWeight: 600,
+                        userSelect: "none",
+                      }}
+                    >
                       <input
                         type="checkbox"
-                        onChange={(e) => setValue("rolesAccess", e.target.checked ? [...ALL_ROLES] : [], { shouldValidate: true })}
-                        style={{ accentColor: colors.brand.primary, width: "13px", height: "13px" }}
+                        onChange={(e) =>
+                          setValue(
+                            "rolesAccess",
+                            e.target.checked ? [...ALL_ROLES] : [],
+                            { shouldValidate: true },
+                          )
+                        }
+                        style={{
+                          accentColor: colors.brand.primary,
+                          width: "13px",
+                          height: "13px",
+                        }}
                       />
                       Select All
                     </label>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", background: "#FFFFFF" }}>
-                    {ALL_ROLES.map((role, idx) => {
-                      const isChecked = (watchedRoles ?? []).includes(role);
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      background: "#FFFFFF",
+                    }}
+                  >
+                    {availableModules.map((module, idx) => {
+                      const isChecked = selectedModules.includes(module.id);
                       return (
                         <label
-                          key={role}
+                          key={module.id}
                           style={{
                             display: "flex",
                             alignItems: "center",
                             gap: "8px",
                             padding: "8px 12px",
                             cursor: "pointer",
-                            borderTop: idx >= 2 ? `1px solid ${colors.header.border}` : undefined,
-                            borderRight: idx % 2 === 0 ? `1px solid ${colors.header.border}` : undefined,
-                            background: isChecked ? "rgba(35, 114, 165, 0.06)" : "#FFFFFF",
+                            borderTop:
+                              idx >= 2
+                                ? `1px solid ${colors.header.border}`
+                                : undefined,
+                            borderRight:
+                              idx % 2 === 0
+                                ? `1px solid ${colors.header.border}`
+                                : undefined,
+                            background: isChecked
+                              ? "rgba(35, 114, 165, 0.06)"
+                              : "#FFFFFF",
                             transition: "background 0.15s",
                             userSelect: "none",
                             fontFamily: typography.fontFamily.sans,
@@ -1393,37 +2340,49 @@ export default function AdminPage() {
                             type="checkbox"
                             checked={isChecked}
                             onChange={(e) => {
-                              const current = watchedRoles ?? [];
-                              const updated = e.target.checked
-                                ? [...current, role]
-                                : current.filter((r) => r !== role);
-                              setValue("rolesAccess", updated, { shouldValidate: true });
+                              setSelectedModules((prev) =>
+                                e.target.checked
+                                  ? [...prev, module.id]
+                                  : prev.filter((id) => id !== module.id),
+                              );
                             }}
-                            style={{ accentColor: colors.brand.accent, width: "13px", height: "13px", flexShrink: 0 }}
+                            style={{
+                              accentColor: colors.brand.accent,
+                              width: "13px",
+                              height: "13px",
+                              flexShrink: 0,
+                            }}
                           />
                           <span
                             style={{
                               fontSize: "12px",
                               fontWeight: isChecked ? 600 : 400,
-                              color: isChecked ? colors.brand.accent : colors.text.primary,
+                              color: isChecked
+                                ? colors.brand.accent
+                                : colors.text.primary,
                               transition: "color 0.15s",
                             }}
                           >
-                            {role}
+                            {module.name}
                           </span>
                         </label>
                       );
                     })}
                   </div>
                 </div>
-                <FieldError message={errors.rolesAccess?.message as string | undefined} />
+                <FieldError
+                  message={errors.rolesAccess?.message as string | undefined}
+                />
               </div>
 
               {/* Action Buttons */}
               <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
                 <button
                   type="button"
-                  onClick={() => { setIsAddModalOpen(false); reset(); }}
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    reset();
+                  }}
                   style={{
                     flex: 1,
                     height: "42px",

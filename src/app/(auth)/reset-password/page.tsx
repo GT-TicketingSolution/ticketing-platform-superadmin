@@ -23,7 +23,8 @@ import { META_CONSTANTS } from "@/lib/metaConstant";
 
 export default function ResetPasswordPage() {
   useEffect(() => {
-    document.title = META_CONSTANTS.resetPassword?.fullTitle || "Reset Password | Super Admin";
+    document.title =
+      META_CONSTANTS.resetPassword?.fullTitle || "Reset Password | Super Admin";
   }, []);
 
   const router = useRouter();
@@ -49,7 +50,11 @@ export default function ResetPasswordPage() {
   });
 
   // Watch password for live strength checking
-  const watchedPassword = useWatch({ control, name: "password", defaultValue: "" });
+  const watchedPassword = useWatch({
+    control,
+    name: "password",
+    defaultValue: "",
+  });
 
   const hasMinLength = watchedPassword.length >= 8;
   const hasLetter = /[A-Za-z]/.test(watchedPassword);
@@ -57,10 +62,41 @@ export default function ResetPasswordPage() {
 
   const onSubmit = async (data: ResetPasswordFormData) => {
     setIsSubmitting(true);
-    // Simulate API call to reset password
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    setIsSubmitting(false);
-    setIsSuccess(true);
+
+    try {
+      const token = new URLSearchParams(window.location.search).get("token");
+
+      if (!token) {
+        alert("Invalid or missing password reset token.");
+        return;
+      }
+
+      const response = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token,
+          password: data.password,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.message || "Failed to reset password.");
+        return;
+      }
+
+      setIsSuccess(true);
+    } catch (error) {
+      console.error("RESET_PASSWORD_ERROR:", error);
+
+      alert("Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -168,7 +204,8 @@ export default function ResetPasswordPage() {
                     width: "100%",
                     textAlign: "left",
                     padding: "8px 14px",
-                    background: lang === selectedLang ? colors.bg.page : "transparent",
+                    background:
+                      lang === selectedLang ? colors.bg.page : "transparent",
                     border: "none",
                     cursor: "pointer",
                     fontSize: "13px",
@@ -226,7 +263,11 @@ export default function ResetPasswordPage() {
               border: `3px solid ${colors.brand.primary}`,
             }}
           >
-            <KeyRound size={34} color={colors.brand.primary} strokeWidth={1.8} />
+            <KeyRound
+              size={34}
+              color={colors.brand.primary}
+              strokeWidth={1.8}
+            />
           </div>
 
           {!isSuccess ? (
@@ -290,7 +331,13 @@ export default function ResetPasswordPage() {
                 }}
               >
                 {/* New Password Field */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
                   <label
                     htmlFor="password"
                     style={{
@@ -350,7 +397,9 @@ export default function ResetPasswordPage() {
                         justifyContent: "center",
                         color: colors.login.inputIcon,
                       }}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
                     >
                       {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
                     </button>
@@ -374,7 +423,13 @@ export default function ResetPasswordPage() {
                 </div>
 
                 {/* Confirm Password Field */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
                   <label
                     htmlFor="confirmPassword"
                     style={{
@@ -384,7 +439,8 @@ export default function ResetPasswordPage() {
                       color: colors.login.title,
                     }}
                   >
-                    Confirm New Password <span style={{ color: "#EF4444" }}>*</span>
+                    Confirm New Password{" "}
+                    <span style={{ color: "#EF4444" }}>*</span>
                   </label>
 
                   <div
@@ -434,9 +490,15 @@ export default function ResetPasswordPage() {
                         justifyContent: "center",
                         color: colors.login.inputIcon,
                       }}
-                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                      aria-label={
+                        showConfirmPassword ? "Hide password" : "Show password"
+                      }
                     >
-                      {showConfirmPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                      {showConfirmPassword ? (
+                        <Eye size={18} />
+                      ) : (
+                        <EyeOff size={18} />
+                      )}
                     </button>
                   </div>
 
@@ -469,19 +531,82 @@ export default function ResetPasswordPage() {
                     gap: "6px",
                   }}
                 >
-                  <span style={{ fontSize: "12px", fontWeight: 600, color: colors.text.primary }}>
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                    }}
+                  >
                     Password Requirements:
                   </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: hasMinLength ? "#16A34A" : colors.text.muted }}>
-                    {hasMinLength ? <Check size={14} color="#16A34A" /> : <div style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid #CBD5E1" }} />}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      fontSize: "12px",
+                      color: hasMinLength ? "#16A34A" : colors.text.muted,
+                    }}
+                  >
+                    {hasMinLength ? (
+                      <Check size={14} color="#16A34A" />
+                    ) : (
+                      <div
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          border: "1px solid #CBD5E1",
+                        }}
+                      />
+                    )}
                     At least 8 characters
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: hasLetter ? "#16A34A" : colors.text.muted }}>
-                    {hasLetter ? <Check size={14} color="#16A34A" /> : <div style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid #CBD5E1" }} />}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      fontSize: "12px",
+                      color: hasLetter ? "#16A34A" : colors.text.muted,
+                    }}
+                  >
+                    {hasLetter ? (
+                      <Check size={14} color="#16A34A" />
+                    ) : (
+                      <div
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          border: "1px solid #CBD5E1",
+                        }}
+                      />
+                    )}
                     Contains at least one letter
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: hasNumber ? "#16A34A" : colors.text.muted }}>
-                    {hasNumber ? <Check size={14} color="#16A34A" /> : <div style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid #CBD5E1" }} />}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      fontSize: "12px",
+                      color: hasNumber ? "#16A34A" : colors.text.muted,
+                    }}
+                  >
+                    {hasNumber ? (
+                      <Check size={14} color="#16A34A" />
+                    ) : (
+                      <div
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          border: "1px solid #CBD5E1",
+                        }}
+                      />
+                    )}
                     Contains at least one number
                   </div>
                 </div>
@@ -565,7 +690,8 @@ export default function ResetPasswordPage() {
                   maxWidth: "320px",
                 }}
               >
-                Your Super Admin account password has been updated. You can now sign in with your new password.
+                Your Super Admin account password has been updated. You can now
+                sign in with your new password.
               </p>
 
               <button

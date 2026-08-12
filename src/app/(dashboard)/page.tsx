@@ -17,34 +17,158 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
-import {
-  INITIAL_ADMINS,
-  INITIAL_PENDING_REQUESTS,
-  INITIAL_RENEWALS,
-  AdminUser,
-  PendingRequest,
-  RenewalItem,
-} from "@/types/superadmin";
 import { exportMultiSectionXLS, XLSSection } from "@/lib/exportUtils";
 import DashboardCharts from "@/components/dashboard/DashboardCharts";
-import { META_CONSTANTS } from "@/lib/metaConstant";
+
+type DashboardAdmin = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  city: string;
+  subdomain: string | null;
+  joinedDate: string;
+  nextRenewal: string | null;
+  renewalAmount: string | null;
+};
+
+type DashboardData = {
+  stats: {
+    totalAdmins: number;
+    activeAdmins: number;
+    pendingRequests: number;
+    upcomingRenewals: number;
+    totalEarnings: string;
+  };
+
+  earnings: {
+    yearly: {
+      year: number;
+      amount: string;
+    }[];
+
+    monthly: {
+      year: number;
+      data: {
+        month: number;
+        monthName: string;
+        amount: string;
+      }[];
+    };
+
+    highestAnnualRevenue: {
+      year: number;
+      amount: string;
+    } | null;
+
+    growthRate: number;
+  };
+
+  cityRevenue: {
+    city: string;
+    amount: string;
+  }[];
+
+  activeAdmins: DashboardAdmin[];
+};
+
+type UpcomingRenewalsData = {
+  summary: {
+    overdue: number;
+    dueWithin7Days: number;
+    dueWithin15Days: number;
+    total: number;
+  };
+
+  renewals: {
+    id: string;
+    adminId: string;
+    adminName: string;
+    adminEmail: string;
+    adminPhone: string;
+    city: string;
+    amount: string;
+    startDate: string;
+    dueDate: string;
+    status: string;
+    paymentStatus: string;
+    paymentMethod: string | null;
+    transactionReference: string | null;
+    daysRemaining: number;
+    urgency: "OVERDUE" | "DUE_SOON";
+  }[];
+};
 
 export default function DashboardPage() {
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+
+  const [upcomingRenewals, setUpcomingRenewals] =
+    useState<UpcomingRenewalsData | null>(null);
+
+  const [loading, setLoading] = useState(true);
+
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
-    document.title = META_CONSTANTS.dashboard.fullTitle;
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [dashboardResponse, renewalsResponse] = await Promise.all([
+          fetch("/api/dashboard", {
+            method: "GET",
+            credentials: "include",
+          }),
+
+          fetch("/api/dashboard/upcoming-renewals?days=15", {
+            method: "GET",
+            credentials: "include",
+          }),
+        ]);
+
+        const dashboardResult = await dashboardResponse.json();
+
+        const renewalsResult = await renewalsResponse.json();
+
+        if (!dashboardResponse.ok || !dashboardResult.success) {
+          throw new Error(
+            dashboardResult.message || "Failed to fetch dashboard data",
+          );
+        }
+
+        if (!renewalsResponse.ok || !renewalsResult.success) {
+          throw new Error(
+            renewalsResult.message || "Failed to fetch upcoming renewals",
+          );
+        }
+
+        setDashboard(dashboardResult.data);
+
+        setUpcomingRenewals(renewalsResult.data);
+      } catch (error) {
+        console.error("DASHBOARD_FETCH_ERROR:", error);
+
+        setError(
+          error instanceof Error ? error.message : "Failed to load dashboard",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboard();
   }, []);
 
-  // State for mock data
-  const [admins] = useState<AdminUser[]>(INITIAL_ADMINS);
-  const [pendingRequests] = useState<PendingRequest[]>(INITIAL_PENDING_REQUESTS);
-  const [renewals] = useState<RenewalItem[]>(INITIAL_RENEWALS);
+  // API data
+  const admins = dashboard?.activeAdmins ?? [];
+  const renewals = upcomingRenewals?.renewals ?? [];
 
   // Filters State
   const [selectedCity, setSelectedCity] = useState<string>("All");
   const [selectedDateRange, setSelectedDateRange] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Cities list derived from admins + renewals
   const cities = useMemo(() => {
     const set = new Set<string>();
     admins.forEach((a) => set.add(a.city));
@@ -52,53 +176,45 @@ export default function DashboardPage() {
     return ["All", ...Array.from(set)];
   }, [admins, renewals]);
 
-  // Filtered Admins
   const filteredAdmins = useMemo(() => {
     return admins.filter((admin) => {
       const matchesCity = selectedCity === "All" || admin.city === selectedCity;
+
+      const search = searchQuery.toLowerCase();
+
       const matchesSearch =
         searchQuery === "" ||
-        admin.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        admin.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        admin.subDomain.toLowerCase().includes(searchQuery.toLowerCase());
+        admin.name.toLowerCase().includes(search) ||
+        admin.email.toLowerCase().includes(search) ||
+        (admin.subdomain ?? "").toLowerCase().includes(search);
+
       return matchesCity && matchesSearch;
     });
   }, [admins, selectedCity, searchQuery]);
 
-  // Filtered Pending Requests
-  const filteredPendingRequests = useMemo(() => {
-    return pendingRequests.filter((req) => {
-      const matchesCity = selectedCity === "All" || req.city === selectedCity;
-      const matchesSearch =
-        searchQuery === "" ||
-        req.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        req.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        req.desc.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesCity && matchesSearch;
-    });
-  }, [pendingRequests, selectedCity, searchQuery]);
-
-  // Filtered Renewals
   const filteredRenewals = useMemo(() => {
     return renewals.filter((item) => {
       const matchesCity = selectedCity === "All" || item.city === selectedCity;
+
+      const search = searchQuery.toLowerCase();
+
       const matchesSearch =
         searchQuery === "" ||
-        item.businessName.toLowerCase().includes(searchQuery.toLowerCase());
+        item.adminName.toLowerCase().includes(search) ||
+        item.adminEmail.toLowerCase().includes(search) ||
+        item.city.toLowerCase().includes(search);
+
       return matchesCity && matchesSearch;
     });
   }, [renewals, selectedCity, searchQuery]);
 
-  // Key Metrics Calculations
-  const totalAdminsCount = filteredAdmins.length;
-  const pendingRequestsCount = filteredPendingRequests.filter(
-    (r) => r.status === "Pending" || r.status === "In-progress"
-  ).length;
-  const upcomingRenewalsCount = filteredRenewals.length;
+  const totalAdminsCount = dashboard?.stats.totalAdmins ?? 0;
 
-  const totalEarnings = useMemo(() => {
-    return filteredAdmins.reduce((sum, admin) => sum + admin.renewalAmount, 0);
-  }, [filteredAdmins]);
+  const pendingRequestsCount = dashboard?.stats.pendingRequests ?? 0;
+
+  const upcomingRenewalsCount = upcomingRenewals?.summary.total ?? 0;
+
+  const totalEarnings = Number(dashboard?.stats.totalEarnings ?? 0);
 
   // Handle Export XLS (Exports full platform dashboard data: Stats + Admins + Pending Requests + Renewals)
   const handleExportXLS = () => {
@@ -110,7 +226,10 @@ export default function DashboardPage() {
           ["Total Active Admins", totalAdminsCount],
           ["Pending Requests Count", pendingRequestsCount],
           ["Upcoming Renewals Count", upcomingRenewalsCount],
-          ["Total Platform Revenue Dues", `₹${totalEarnings.toLocaleString("en-IN")}`],
+          [
+            "Total Platform Revenue Dues",
+            `₹${totalEarnings.toLocaleString("en-IN")}`,
+          ],
           ["Selected City Filter", selectedCity],
           ["Active Search Query", searchQuery || "None"],
           ["Export Generated At", new Date().toLocaleString()],
@@ -137,66 +256,82 @@ export default function DashboardPage() {
           a.phone,
           a.email,
           a.city,
-          a.subDomain,
-          a.joinedDate,
-          a.lastRenewalDate,
-          a.nextRenewalDate,
-          `₹${a.renewalAmount.toLocaleString("en-IN")}`,
-          a.status,
+          a.subdomain ?? "-",
+          new Date(a.joinedDate).toLocaleDateString("en-IN"),
+          "-",
+          a.nextRenewal
+            ? new Date(a.nextRenewal).toLocaleDateString("en-IN")
+            : "-",
+          a.renewalAmount
+            ? `₹${Number(a.renewalAmount).toLocaleString("en-IN")}`
+            : "-",
+          "ACTIVE",
         ]),
       },
-      {
-        title: "3. PENDING & SYSTEM REQUESTS LOG",
-        headers: [
-          "Request ID",
-          "Admin Name",
-          "Phone",
-          "Email",
-          "City",
-          "Request Description",
-          "Internal Notes",
-          "Created Date",
-          "Status",
-        ],
-        rows: filteredPendingRequests.map((r) => [
-          r.id,
-          r.name,
-          r.phone,
-          r.email,
-          r.city,
-          r.desc,
-          r.notes || "N/A",
-          r.createdDate,
-          r.status,
-        ]),
-      },
+
       {
         title: "4. SUBSCRIPTION & LICENSE RENEWALS TRACKER",
+
         headers: [
           "Renewal ID",
-          "Business Name",
           "Admin Name",
+          "Email",
+          "Phone",
           "City",
-          "Renewal Date",
-          "Amount Dues",
+          "Due Date",
+          "Amount",
           "Status",
-          "Last Reminder Sent",
+          "Payment Status",
         ],
+
         rows: filteredRenewals.map((r) => [
           r.id,
-          r.businessName,
           r.adminName,
+          r.adminEmail,
+          r.adminPhone,
           r.city,
-          r.renewalDate,
-          `₹${r.amount.toLocaleString("en-IN")}`,
+          new Date(r.dueDate).toLocaleDateString("en-IN"),
+          `₹${Number(r.amount).toLocaleString("en-IN")}`,
           r.status,
-          r.lastNotificationSent || "Not Sent Yet",
+          r.paymentStatus,
         ]),
       },
     ];
 
-    exportMultiSectionXLS(`SuperAdmin_Full_Dashboard_Report_${selectedCity}`, sections);
+    exportMultiSectionXLS(
+      `SuperAdmin_Full_Dashboard_Report_${selectedCity}`,
+      sections,
+    );
   };
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          minHeight: "400px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: colors.text.muted,
+        }}
+      >
+        Loading dashboard...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        style={{
+          padding: "24px",
+          color: colors.status.error,
+        }}
+      >
+        {error}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
@@ -680,7 +815,10 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Dashboard Interactive Charts ── */}
-      <DashboardCharts />
+      <DashboardCharts
+        earnings={dashboard?.earnings}
+        cityRevenue={dashboard?.cityRevenue ?? []}
+      />
 
       {/* ── Dynamic Breakdown Table ── */}
       <div
@@ -714,7 +852,9 @@ export default function DashboardPage() {
               Active Administrators Overview
             </h3>
             <span style={{ fontSize: "13px", color: colors.text.muted }}>
-              Showing most recent 5 of {filteredAdmins.length} admins &bull; Filtered by City: <strong>{selectedCity}</strong>
+              Showing {Math.min(filteredAdmins.length, 5)} of{" "}
+              {filteredAdmins.length} admins &bull; Filtered by City:{" "}
+              <strong>{selectedCity}</strong>
             </span>
           </div>
           <Link
@@ -786,66 +926,84 @@ export default function DashboardPage() {
                 </tr>
               ) : (
                 [...filteredAdmins]
-                  .sort((a, b) => new Date(b.joinedDate).getTime() - new Date(a.joinedDate).getTime())
+                  .sort(
+                    (a, b) =>
+                      new Date(b.joinedDate).getTime() -
+                      new Date(a.joinedDate).getTime(),
+                  )
                   .slice(0, 5)
                   .map((admin) => (
-                  <tr
-                    key={admin.id}
-                    style={{
-                      borderBottom: `1px solid ${colors.header.border}`,
-                      transition: "background 0.15s ease",
-                    }}
-                    className="table-row-hover"
-                  >
-                    <td style={{ padding: "14px 20px", fontWeight: 600 }}>
-                      {admin.name}
-                    </td>
-                    <td style={{ padding: "14px 20px" }}>
-                      <div>{admin.email}</div>
-                      <div style={{ fontSize: "12px", color: colors.text.muted }}>
-                        {admin.phone}
-                      </div>
-                    </td>
-                    <td style={{ padding: "14px 20px" }}>
-                      <span
+                    <tr
+                      key={admin.id}
+                      style={{
+                        borderBottom: `1px solid ${colors.header.border}`,
+                        transition: "background 0.15s ease",
+                      }}
+                      className="table-row-hover"
+                    >
+                      <td style={{ padding: "14px 20px", fontWeight: 600 }}>
+                        {admin.name}
+                      </td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <div>{admin.email}</div>
+                        <div
+                          style={{ fontSize: "12px", color: colors.text.muted }}
+                        >
+                          {admin.phone}
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <span
+                          style={{
+                            background: colors.bg.page,
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: colors.brand.accent,
+                          }}
+                        >
+                          {admin.city}
+                        </span>
+                      </td>
+                      <td
                         style={{
-                          background: colors.bg.page,
-                          padding: "4px 10px",
-                          borderRadius: "6px",
-                          fontSize: "12px",
-                          fontWeight: 600,
+                          padding: "14px 20px",
                           color: colors.brand.accent,
+                          fontWeight: 500,
                         }}
                       >
-                        {admin.city}
-                      </span>
-                    </td>
-                    <td
-                      style={{
-                        padding: "14px 20px",
-                        color: colors.brand.accent,
-                        fontWeight: 500,
-                      }}
-                    >
-                      {admin.subDomain}
-                    </td>
-                    <td style={{ padding: "14px 20px", color: colors.text.muted }}>
-                      {admin.joinedDate}
-                    </td>
-                    <td style={{ padding: "14px 20px", fontWeight: 500 }}>
-                      {admin.nextRenewalDate}
-                    </td>
-                    <td
-                      style={{
-                        padding: "14px 20px",
-                        fontWeight: 700,
-                        color: colors.text.primary,
-                      }}
-                    >
-                      ₹{admin.renewalAmount.toLocaleString("en-IN")}
-                    </td>
-                  </tr>
-                ))
+                        {admin.subdomain ?? "-"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "14px 20px",
+                          color: colors.text.muted,
+                        }}
+                      >
+                        {new Date(admin.joinedDate).toLocaleDateString("en-IN")}
+                      </td>
+                      <td style={{ padding: "14px 20px", fontWeight: 500 }}>
+                        {admin.nextRenewal
+                          ? new Date(admin.nextRenewal).toLocaleDateString(
+                              "en-IN",
+                            )
+                          : "-"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "14px 20px",
+                          fontWeight: 700,
+                          color: colors.text.primary,
+                        }}
+                      >
+                        ₹
+                        {admin.renewalAmount
+                          ? `₹${Number(admin.renewalAmount).toLocaleString("en-IN")}`
+                          : "-"}
+                      </td>
+                    </tr>
+                  ))
               )}
             </tbody>
           </table>

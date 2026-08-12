@@ -3,7 +3,15 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { X, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, ShieldCheck } from "lucide-react";
+import {
+  X,
+  Lock,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  ShieldCheck,
+} from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { changePasswordSchema, ChangePasswordFormData } from "./schema";
 
@@ -40,15 +48,41 @@ export default function ChangePasswordModal({
 
   const onSubmit = async (data: ChangePasswordFormData) => {
     setIsSubmitting(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    setIsSubmitting(false);
-    setSuccess(true);
-    reset();
-    setTimeout(() => {
-      setSuccess(false);
-      onClose();
-    }, 1800);
+
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          currentPassword: data.currentPassword,
+          newPassword: data.newPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to change password");
+      }
+
+      setSuccess(true);
+      reset();
+
+      setTimeout(() => {
+        setSuccess(false);
+        onClose();
+      }, 1800);
+    } catch (error) {
+      console.error("CHANGE_PASSWORD_ERROR:", error);
+
+      alert(
+        error instanceof Error ? error.message : "Failed to change password",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
@@ -207,7 +241,11 @@ export default function ChangePasswordModal({
                 transition: "border-color 0.2s ease",
               }}
             >
-              <Lock size={16} color={colors.login.inputIcon} style={{ marginRight: "10px", flexShrink: 0 }} />
+              <Lock
+                size={16}
+                color={colors.login.inputIcon}
+                style={{ marginRight: "10px", flexShrink: 0 }}
+              />
               <input
                 type={showCurrent ? "text" : "password"}
                 placeholder="Enter current password"
@@ -278,7 +316,11 @@ export default function ChangePasswordModal({
                 transition: "border-color 0.2s ease",
               }}
             >
-              <Lock size={16} color={colors.login.inputIcon} style={{ marginRight: "10px", flexShrink: 0 }} />
+              <Lock
+                size={16}
+                color={colors.login.inputIcon}
+                style={{ marginRight: "10px", flexShrink: 0 }}
+              />
               <input
                 type={showNew ? "text" : "password"}
                 placeholder="Min. 8 chars, upper, lower & number"
@@ -349,7 +391,11 @@ export default function ChangePasswordModal({
                 transition: "border-color 0.2s ease",
               }}
             >
-              <Lock size={16} color={colors.login.inputIcon} style={{ marginRight: "10px", flexShrink: 0 }} />
+              <Lock
+                size={16}
+                color={colors.login.inputIcon}
+                style={{ marginRight: "10px", flexShrink: 0 }}
+              />
               <input
                 type={showConfirm ? "text" : "password"}
                 placeholder="Re-enter new password"
@@ -408,7 +454,9 @@ export default function ChangePasswordModal({
               lineHeight: "1.6",
             }}
           >
-            <strong style={{ color: colors.text.primary }}>Password requirements:</strong>
+            <strong style={{ color: colors.text.primary }}>
+              Password requirements:
+            </strong>
             <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
               <li>At least 8 characters long</li>
               <li>At least one uppercase letter (A–Z)</li>
@@ -455,7 +503,11 @@ export default function ChangePasswordModal({
                 opacity: isSubmitting || success ? 0.8 : 1,
               }}
             >
-              {isSubmitting ? "Saving..." : success ? "✓ Saved!" : "Update Password"}
+              {isSubmitting
+                ? "Saving..."
+                : success
+                  ? "✓ Saved!"
+                  : "Update Password"}
             </button>
           </div>
         </form>

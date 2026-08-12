@@ -26,7 +26,7 @@ import {
   Building2,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
-import { INITIAL_PENDING_REQUESTS, PendingRequest } from "@/types/superadmin";
+import { PendingRequest } from "@/types/superadmin";
 import { useToast } from "@/components/ui/Toast";
 import { confirmAdd, confirmDelete, confirmStatusChange } from "@/lib/notify";
 import { addRequestSchema, AddRequestFormData } from "./schema";
@@ -68,12 +68,129 @@ const inputStyle = (hasError: boolean): React.CSSProperties => ({
   fontFamily: typography.fontFamily.sans,
   transition: "border-color 0.18s",
 });
+type ApiAdminRequest = {
+  id: string;
+  requestNumber: string;
+  adminId: string;
+  name: string;
+  phone: string;
+  email: string;
+  desc: string;
+  notes: string;
+  status: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REJECTED" | "CANCELLED";
+  city: string;
+  createdDate: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AdminRequestsResponse = {
+  success: boolean;
+  data: ApiAdminRequest[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+};
+
+const API_URL = "/api/admin-requests";
+
+const statusToApi = (status: PendingRequest["status"]) => {
+  switch (status) {
+    case "Pending":
+      return "PENDING";
+    case "In-progress":
+      return "IN_PROGRESS";
+    case "Accepted":
+      return "ACCEPTED";
+    case "Canceled":
+      return "CANCELLED";
+    default:
+      return "PENDING";
+  }
+};
+
+const normalizeRequest = (
+  request:
+    | ApiAdminRequest
+    | {
+        id: string;
+        requestNumber: string;
+        adminId: string;
+        name: string;
+        phone: string;
+        email: string;
+        desc: string;
+        notes: string;
+        status:
+          | "PENDING"
+          | "IN_PROGRESS"
+          | "ACCEPTED"
+          | "REJECTED"
+          | "CANCELLED"
+          | "Pending"
+          | "In-progress"
+          | "Accepted"
+          | "Rejected"
+          | "Canceled";
+        city: string;
+        createdDate: string;
+        createdAt?: string;
+        updatedAt?: string;
+      },
+): PendingRequest => {
+  let status: PendingRequest["status"];
+
+  switch (request.status) {
+    case "PENDING":
+    case "Pending":
+      status = "Pending";
+      break;
+
+    case "IN_PROGRESS":
+    case "In-progress":
+      status = "In-progress";
+      break;
+
+    case "ACCEPTED":
+    case "Accepted":
+      status = "Accepted";
+      break;
+
+    case "CANCELLED":
+    case "Canceled":
+      status = "Canceled";
+      break;
+
+    default:
+      status = "Pending";
+  }
+
+  return {
+    id: request.id,
+    name: request.name,
+    phone: request.phone ?? "",
+    email: request.email ?? "",
+    desc: request.desc ?? "",
+    notes: request.notes ?? "",
+    status,
+    city: request.city ?? "",
+    createdDate: request.createdDate,
+  };
+};
 
 export default function PendingRequestsPage() {
   const { showToast } = useToast();
-  const [requests, setRequests] = useState<PendingRequest[]>(INITIAL_PENDING_REQUESTS);
+  const [requests, setRequests] = useState<PendingRequest[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("All");
+  const [selectedStatusFilter, setSelectedStatusFilter] =
+    useState<string>("All");
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
 
   // Read URL query parameter + set page title
@@ -92,8 +209,64 @@ export default function PendingRequestsPage() {
     }
   }, []);
 
+  const fetchRequests = async () => {
+    try {
+      setIsLoading(true);
+
+      const params = new URLSearchParams();
+
+      params.set("page", "1");
+      params.set("limit", "100");
+
+      if (searchQuery.trim()) {
+        params.set("search", searchQuery.trim());
+      }
+
+      if (selectedStatusFilter !== "All") {
+        params.set(
+          "status",
+          statusToApi(selectedStatusFilter as PendingRequest["status"]),
+        );
+      }
+
+      if (selectedCityFilter !== "All") {
+        params.set("city", selectedCityFilter);
+      }
+
+      const response = await fetch(`${API_URL}?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      const result: AdminRequestsResponse = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.success
+            ? "Failed to fetch requests"
+            : "Failed to fetch admin requests",
+        );
+      }
+
+      setRequests(result.data.map(normalizeRequest));
+    } catch (error) {
+      console.error("FETCH_ADMIN_REQUESTS_ERROR:", error);
+
+      showToast("Failed to fetch admin requests", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRequests();
+  }, []);
+
   // Selected request for details view
-  const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(
+    null,
+  );
   const [isEditing, setIsEditing] = useState(false);
 
   // Modals state
@@ -176,73 +349,285 @@ export default function PendingRequestsPage() {
   // Add request with confirm
   const onAddSubmit = async (data: AddRequestFormData) => {
     setIsAddModalOpen(false);
+
     const confirmed = await confirmAdd(`request from "${data.name}"`);
+
     if (!confirmed) {
       setIsAddModalOpen(true);
       return;
     }
 
-    const item: PendingRequest = {
-      id: `REQ-${100 + requests.length + 1}`,
-      name: data.name,
-      phone: data.phone,
-      email: data.email,
-      desc: data.desc,
-      notes: data.notes || "",
-      status: data.status,
-      createdDate: new Date().toISOString().slice(0, 10),
-      city: data.city,
-    };
+    try {
+      setIsSaving(true);
 
-    setRequests([item, ...requests]);
-    reset();
-    showToast(`Request from "${item.name}" created successfully!`, "success");
+      /* -------------------------------------------------------------------- */
+      /* Find existing admin                                                  */
+      /* -------------------------------------------------------------------- */
+
+      const adminsResponse = await fetch(
+        `/api/admins?search=${encodeURIComponent(data.email)}&limit=10`,
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        },
+      );
+
+      const adminsResult = await adminsResponse.json();
+
+      if (!adminsResponse.ok || !adminsResult.success) {
+        throw new Error(adminsResult.message || "Failed to find admin");
+      }
+
+      const admins = Array.isArray(adminsResult.data)
+        ? adminsResult.data
+        : Array.isArray(adminsResult.data?.data)
+          ? adminsResult.data.data
+          : [];
+
+      console.log("ADMINS API RESPONSE:", adminsResult);
+      console.log("ADMINS ARRAY:", admins);
+
+      /* -------------------------------------------------------------------- */
+      /* Match admin                                                          */
+      /* -------------------------------------------------------------------- */
+
+      const admin = admins.find(
+        (item: { id: string; email: string }) =>
+          item.email?.toLowerCase() === data.email.trim().toLowerCase(),
+      );
+
+      if (!admin) {
+        throw new Error(
+          `No admin found with email "${data.email}". Please select an existing admin.`,
+        );
+      }
+
+      console.log("SELECTED ADMIN:", admin);
+
+      /* -------------------------------------------------------------------- */
+      /* Create Admin Request                                                 */
+      /* -------------------------------------------------------------------- */
+
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          adminId: admin.id,
+          description: data.desc.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to create admin request");
+      }
+
+      /* -------------------------------------------------------------------- */
+      /* Update UI                                                            */
+      /* -------------------------------------------------------------------- */
+
+      const createdRequest = normalizeRequest(result.data);
+
+      setRequests((prev) => [createdRequest, ...prev]);
+
+      reset();
+
+      showToast(
+        `Request from "${createdRequest.name}" created successfully!`,
+        "success",
+      );
+    } catch (error) {
+      console.error("CREATE_ADMIN_REQUEST_ERROR:", error);
+
+      setIsAddModalOpen(true);
+
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to create admin request",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Handle status change with confirm
-  const handleStatusChange = async (id: string, newStatus: PendingRequest["status"]) => {
+  const handleStatusChange = async (
+    id: string,
+    newStatus: PendingRequest["status"],
+  ) => {
     const target = requests.find((r) => r.id === id);
+
     if (!target) return;
 
     const confirmed = await confirmStatusChange(target.name, newStatus);
+
     if (!confirmed) return;
 
-    const updated = requests.map((r) => (r.id === id ? { ...r, status: newStatus } : r));
-    setRequests(updated);
+    try {
+      setIsSaving(true);
 
-    // Also update selectedRequest if open
-    if (selectedRequest && selectedRequest.id === id) {
-      setSelectedRequest({ ...selectedRequest, status: newStatus });
+      const response = await fetch(`${API_URL}/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          status: statusToApi(newStatus),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to update request status");
+      }
+
+      const updatedRequest = normalizeRequest(result.data);
+
+      setRequests((prev) =>
+        prev.map((request) => (request.id === id ? updatedRequest : request)),
+      );
+
+      if (selectedRequest && selectedRequest.id === id) {
+        setSelectedRequest(updatedRequest);
+      }
+
+      const toastType =
+        newStatus === "Accepted"
+          ? "success"
+          : newStatus === "Canceled"
+            ? "error"
+            : "info";
+
+      showToast(`"${target.name}" status updated to ${newStatus}`, toastType);
+    } catch (error) {
+      console.error("UPDATE_REQUEST_STATUS_ERROR:", error);
+
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to update request status",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
     }
-
-    const toastType =
-      newStatus === "Accepted" ? "success" : newStatus === "Canceled" ? "error" : "info";
-
-    showToast(`"${target.name}" status updated to ${newStatus}`, toastType);
   };
 
   // Save edited request
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!selectedRequest) return;
-    setRequests(requests.map((r) => (r.id === selectedRequest.id ? selectedRequest : r)));
-    setIsEditing(false);
-    showToast(`Request "${selectedRequest.name}" updated successfully!`, "success");
+
+    try {
+      setIsSaving(true);
+
+      const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          desc: selectedRequest.desc,
+          notes: selectedRequest.notes || null,
+          status: statusToApi(selectedRequest.status),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to update request");
+      }
+
+      const updatedRequest = normalizeRequest(result.data);
+
+      setRequests((prev) =>
+        prev.map((request) =>
+          request.id === updatedRequest.id ? updatedRequest : request,
+        ),
+      );
+
+      setSelectedRequest(updatedRequest);
+      setIsEditing(false);
+
+      showToast(
+        `Request "${updatedRequest.name}" updated successfully!`,
+        "success",
+      );
+    } catch (error) {
+      console.error("UPDATE_ADMIN_REQUEST_ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to update request",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Delete request
   const handleDeleteRequest = async (id: string) => {
     const target = requests.find((r) => r.id === id);
+
     const prev = selectedRequest;
+
     setSelectedRequest(null);
 
-    const confirmed = await confirmDelete(`request from "${target?.name ?? id}"`);
+    const confirmed = await confirmDelete(
+      `request from "${target?.name ?? id}"`,
+    );
+
     if (!confirmed) {
       setSelectedRequest(prev);
       return;
     }
 
-    setRequests(requests.filter((r) => r.id !== id));
-    showToast(`Request from "${target?.name ?? id}" has been deleted.`, "error");
+    try {
+      setIsSaving(true);
+
+      const response = await fetch(`${API_URL}/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to delete request");
+      }
+
+      setRequests((prevRequests) =>
+        prevRequests.filter((request) => request.id !== id),
+      );
+
+      showToast(
+        `Request from "${target?.name ?? id}" has been deleted.`,
+        "error",
+      );
+    } catch (error) {
+      console.error("DELETE_ADMIN_REQUEST_ERROR:", error);
+
+      if (prev) {
+        setSelectedRequest(prev);
+      }
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to delete request",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ── DataTable Columns ──────────────────────────────────────────────────────
@@ -252,7 +637,13 @@ export default function PendingRequestsPage() {
       cell: (req) => (
         <div>
           <div style={{ fontWeight: 600 }}>{req.name}</div>
-          <div style={{ fontSize: "12px", color: colors.brand.accent, fontWeight: 500 }}>
+          <div
+            style={{
+              fontSize: "12px",
+              color: colors.brand.accent,
+              fontWeight: 500,
+            }}
+          >
             {req.city}
           </div>
         </div>
@@ -263,7 +654,13 @@ export default function PendingRequestsPage() {
     {
       header: "Description",
       cell: (req) => (
-        <span style={{ maxWidth: "200px", display: "inline-block", fontSize: "13px" }}>
+        <span
+          style={{
+            maxWidth: "200px",
+            display: "inline-block",
+            fontSize: "13px",
+          }}
+        >
           {req.desc}
         </span>
       ),
@@ -323,7 +720,10 @@ export default function PendingRequestsPage() {
         >
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <button
-              onClick={() => { setSelectedRequest(null); setIsEditing(false); }}
+              onClick={() => {
+                setSelectedRequest(null);
+                setIsEditing(false);
+              }}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -344,7 +744,9 @@ export default function PendingRequestsPage() {
             </button>
 
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
                 <h1
                   style={{
                     fontFamily: typography.fontFamily.sans,
@@ -378,7 +780,8 @@ export default function PendingRequestsPage() {
                   margin: "2px 0 0 0",
                 }}
               >
-                {selectedRequest.city} • Created on {selectedRequest.createdDate}
+                {selectedRequest.city} • Created on{" "}
+                {selectedRequest.createdDate}
               </p>
             </div>
           </div>
@@ -485,28 +888,56 @@ export default function PendingRequestsPage() {
               gap: "20px",
             }}
           >
-            <h2 style={{ fontSize: "16px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+            <h2
+              style={{
+                fontSize: "16px",
+                margin: 0,
+                fontWeight: 700,
+                fontFamily: typography.fontFamily.sans,
+                color: colors.text.primary,
+              }}
+            >
               Edit Request Information
             </h2>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Admin Name</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Admin Name
+                </label>
                 <input
                   type="text"
                   value={selectedRequest.name}
-                  onChange={(e) => setSelectedRequest({ ...selectedRequest, name: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedRequest({
+                      ...selectedRequest,
+                      name: e.target.value,
+                    })
+                  }
                   style={inputStyle(false)}
                 />
               </div>
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>City</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  City
+                </label>
                 <input
                   type="text"
                   list="pending-req-city-list"
                   placeholder="Select or type city..."
                   value={selectedRequest.city}
-                  onChange={(e) => setSelectedRequest({ ...selectedRequest, city: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedRequest({
+                      ...selectedRequest,
+                      city: e.target.value,
+                    })
+                  }
                   style={{ ...inputStyle(false), background: "#FFFFFF" }}
                 />
                 <datalist id="pending-req-city-list">
@@ -519,9 +950,17 @@ export default function PendingRequestsPage() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Phone Number</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Phone Number
+                </label>
                 <input
                   type="text"
                   maxLength={10}
@@ -546,18 +985,27 @@ export default function PendingRequestsPage() {
                 />
               </div>
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600 }}>Email Address</label>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Email Address
+                </label>
                 <input
                   type="email"
                   value={selectedRequest.email}
-                  onChange={(e) => setSelectedRequest({ ...selectedRequest, email: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedRequest({
+                      ...selectedRequest,
+                      email: e.target.value,
+                    })
+                  }
                   style={inputStyle(false)}
                 />
               </div>
             </div>
 
             <div>
-              <label style={{ fontSize: "13px", fontWeight: 600 }}>Request Status</label>
+              <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                Request Status
+              </label>
               <select
                 value={selectedRequest.status}
                 onChange={(e) =>
@@ -576,11 +1024,18 @@ export default function PendingRequestsPage() {
             </div>
 
             <div>
-              <label style={{ fontSize: "13px", fontWeight: 600 }}>Request Description</label>
+              <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                Request Description
+              </label>
               <textarea
                 rows={3}
                 value={selectedRequest.desc}
-                onChange={(e) => setSelectedRequest({ ...selectedRequest, desc: e.target.value })}
+                onChange={(e) =>
+                  setSelectedRequest({
+                    ...selectedRequest,
+                    desc: e.target.value,
+                  })
+                }
                 style={{
                   width: "100%",
                   border: `1.5px solid ${colors.login.inputBorder}`,
@@ -597,19 +1052,34 @@ export default function PendingRequestsPage() {
             </div>
 
             <div>
-              <label style={{ fontSize: "13px", fontWeight: 600 }}>Internal Notes</label>
+              <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                Internal Notes
+              </label>
               <input
                 type="text"
                 value={selectedRequest.notes}
-                onChange={(e) => setSelectedRequest({ ...selectedRequest, notes: e.target.value })}
+                onChange={(e) =>
+                  setSelectedRequest({
+                    ...selectedRequest,
+                    notes: e.target.value,
+                  })
+                }
                 style={inputStyle(false)}
               />
             </div>
           </div>
         ) : (
           /* ── Read Only Detail Cards ── */
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "20px" }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "20px",
+              }}
+            >
               {/* Contact Info Card */}
               <div
                 style={{
@@ -622,38 +1092,123 @@ export default function PendingRequestsPage() {
                   gap: "14px",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    paddingBottom: "12px",
+                    borderBottom: `1px solid ${colors.header.border}`,
+                  }}
+                >
                   <Phone size={18} color={colors.brand.accent} />
-                  <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+                  <h3
+                    style={{
+                      fontSize: "15px",
+                      margin: 0,
+                      fontWeight: 700,
+                      fontFamily: typography.fontFamily.sans,
+                      color: colors.text.primary,
+                    }}
+                  >
                     Contact Information
                   </h3>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "14px",
+                  }}
+                >
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <Phone size={12} /> Phone Number
                     </span>
-                    <strong style={{ fontSize: "14px", marginTop: "2px", display: "block" }}>{selectedRequest.phone}</strong>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
+                      {selectedRequest.phone}
+                    </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <Mail size={12} /> Email Address
                     </span>
-                    <strong style={{ fontSize: "14px", marginTop: "2px", display: "block" }}>{selectedRequest.email}</strong>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
+                      {selectedRequest.email}
+                    </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <MapPin size={12} /> City Location
                     </span>
-                    <strong style={{ fontSize: "14px", marginTop: "2px", display: "block", color: colors.brand.accent }}>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                        color: colors.brand.accent,
+                      }}
+                    >
                       {selectedRequest.city}
                     </strong>
                   </div>
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
                       <Calendar size={12} /> Created Date
                     </span>
-                    <strong style={{ fontSize: "14px", marginTop: "2px", display: "block" }}>{selectedRequest.createdDate}</strong>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                      }}
+                    >
+                      {selectedRequest.createdDate}
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -670,25 +1225,68 @@ export default function PendingRequestsPage() {
                   gap: "14px",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    paddingBottom: "12px",
+                    borderBottom: `1px solid ${colors.header.border}`,
+                  }}
+                >
                   <CheckCircle size={18} color={colors.brand.accent} />
-                  <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+                  <h3
+                    style={{
+                      fontSize: "15px",
+                      margin: 0,
+                      fontWeight: 700,
+                      fontFamily: typography.fontFamily.sans,
+                      color: colors.text.primary,
+                    }}
+                  >
                     Request Status
                   </h3>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "14px",
+                  }}
+                >
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "block", marginBottom: "6px" }}>Current Status</span>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "block",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      Current Status
+                    </span>
                     {renderStatusBadge(selectedRequest.status)}
                   </div>
 
                   <div>
-                    <span style={{ fontSize: "12px", color: colors.text.muted, display: "block", marginBottom: "6px" }}>Update Status</span>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "block",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      Update Status
+                    </span>
                     <select
                       value={selectedRequest.status}
                       onChange={(e) =>
-                        handleStatusChange(selectedRequest.id, e.target.value as PendingRequest["status"])
+                        handleStatusChange(
+                          selectedRequest.id,
+                          e.target.value as PendingRequest["status"],
+                        )
                       }
                       style={{
                         height: "38px",
@@ -725,13 +1323,37 @@ export default function PendingRequestsPage() {
                 gap: "14px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  paddingBottom: "12px",
+                  borderBottom: `1px solid ${colors.header.border}`,
+                }}
+              >
                 <FileText size={18} color={colors.brand.accent} />
-                <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+                <h3
+                  style={{
+                    fontSize: "15px",
+                    margin: 0,
+                    fontWeight: 700,
+                    fontFamily: typography.fontFamily.sans,
+                    color: colors.text.primary,
+                  }}
+                >
                   Request Description
                 </h3>
               </div>
-              <p style={{ margin: 0, fontSize: "14px", color: colors.text.primary, lineHeight: "1.7", fontFamily: typography.fontFamily.sans }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  color: colors.text.primary,
+                  lineHeight: "1.7",
+                  fontFamily: typography.fontFamily.sans,
+                }}
+              >
                 {selectedRequest.desc}
               </p>
             </div>
@@ -748,14 +1370,41 @@ export default function PendingRequestsPage() {
                 gap: "14px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingBottom: "12px", borderBottom: `1px solid ${colors.header.border}` }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  paddingBottom: "12px",
+                  borderBottom: `1px solid ${colors.header.border}`,
+                }}
+              >
                 <StickyNote size={18} color={colors.brand.accent} />
-                <h3 style={{ fontSize: "15px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans, color: colors.text.primary }}>
+                <h3
+                  style={{
+                    fontSize: "15px",
+                    margin: 0,
+                    fontWeight: 700,
+                    fontFamily: typography.fontFamily.sans,
+                    color: colors.text.primary,
+                  }}
+                >
                   Internal Notes
                 </h3>
               </div>
-              <p style={{ margin: 0, fontSize: "14px", color: selectedRequest.notes ? colors.text.primary : colors.text.muted, lineHeight: "1.7", fontFamily: typography.fontFamily.sans }}>
-                {selectedRequest.notes || "No internal notes added for this request."}
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  color: selectedRequest.notes
+                    ? colors.text.primary
+                    : colors.text.muted,
+                  lineHeight: "1.7",
+                  fontFamily: typography.fontFamily.sans,
+                }}
+              >
+                {selectedRequest.notes ||
+                  "No internal notes added for this request."}
               </p>
             </div>
           </div>
@@ -797,7 +1446,8 @@ export default function PendingRequestsPage() {
               margin: "4px 0 0 0",
             }}
           >
-            Review and act on pending domain setup, role permission, and system upgrade requests submitted by admins.
+            Review and act on pending domain setup, role permission, and system
+            upgrade requests submitted by admins.
           </p>
         </div>
 
@@ -841,7 +1491,13 @@ export default function PendingRequestsPage() {
         {/* Filter Status */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Filter size={16} color={colors.brand.accent} />
-          <span style={{ fontSize: "13px", fontWeight: 600, fontFamily: typography.fontFamily.sans }}>
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              fontFamily: typography.fontFamily.sans,
+            }}
+          >
             Filter Status:
           </span>
           <select
@@ -869,7 +1525,14 @@ export default function PendingRequestsPage() {
         {/* Filter City */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Building2 size={16} color={colors.text.muted} />
-          <span style={{ fontSize: "13px", fontWeight: 600, fontFamily: typography.fontFamily.sans, color: colors.text.muted }}>
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              fontFamily: typography.fontFamily.sans,
+              color: colors.text.muted,
+            }}
+          >
             City:
           </span>
           <select
@@ -933,7 +1596,9 @@ export default function PendingRequestsPage() {
         data={filteredRequests}
         keyExtractor={(r) => r.id}
         pageSize={5}
-        emptyMessage="No admin requests found."
+        emptyMessage={
+          isLoading ? "Loading admin requests..." : "No admin requests found."
+        }
       />
 
       {/* ── Add Request Modal ── */}
@@ -971,12 +1636,27 @@ export default function PendingRequestsPage() {
                 justifyContent: "space-between",
               }}
             >
-              <h2 style={{ fontSize: "18px", margin: 0, fontWeight: 700, fontFamily: typography.fontFamily.sans }}>
+              <h2
+                style={{
+                  fontSize: "18px",
+                  margin: 0,
+                  fontWeight: 700,
+                  fontFamily: typography.fontFamily.sans,
+                }}
+              >
                 Create Admin Request
               </h2>
               <button
-                onClick={() => { setIsAddModalOpen(false); reset(); }}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#FFFFFF" }}
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  reset();
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#FFFFFF",
+                }}
               >
                 <X size={20} />
               </button>
@@ -984,11 +1664,23 @@ export default function PendingRequestsPage() {
 
             <form
               onSubmit={handleSubmit(onAddSubmit)}
-              style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "14px" }}
+              style={{
+                padding: "24px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
+              }}
             >
               {/* Admin Name */}
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
                   Admin Name <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
@@ -1000,9 +1692,22 @@ export default function PendingRequestsPage() {
                 <FieldError message={errors.name?.message} />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                }}
+              >
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
                     Phone Number <span style={{ color: "#EF4444" }}>*</span>
                   </label>
                   <input
@@ -1021,7 +1726,9 @@ export default function PendingRequestsPage() {
                       }
                     }}
                     onInput={(e) => {
-                      const val = e.currentTarget.value.replace(/\D/g, "").slice(0, 10);
+                      const val = e.currentTarget.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10);
                       e.currentTarget.value = val;
                       setValue("phone", val, { shouldValidate: true });
                     }}
@@ -1030,7 +1737,14 @@ export default function PendingRequestsPage() {
                   <FieldError message={errors.phone?.message} />
                 </div>
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
                     Email Address <span style={{ color: "#EF4444" }}>*</span>
                   </label>
                   <input
@@ -1045,8 +1759,16 @@ export default function PendingRequestsPage() {
 
               {/* Description */}
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
-                  Request Description <span style={{ color: "#EF4444" }}>*</span>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
+                  Request Description{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <textarea
                   rows={3}
@@ -1069,7 +1791,14 @@ export default function PendingRequestsPage() {
 
               {/* Notes */}
               <div>
-                <label style={{ fontSize: "13px", fontWeight: 600, color: colors.text.primary, fontFamily: typography.fontFamily.sans }}>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
                   Internal Notes
                 </label>
                 <input
@@ -1084,7 +1813,10 @@ export default function PendingRequestsPage() {
               <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
                 <button
                   type="button"
-                  onClick={() => { setIsAddModalOpen(false); reset(); }}
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    reset();
+                  }}
                   style={{
                     flex: 1,
                     height: "42px",

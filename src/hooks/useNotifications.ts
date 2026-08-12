@@ -1,96 +1,371 @@
-import { useMemo } from "react";
-import {
-  INITIAL_RENEWALS,
-  INITIAL_PENDING_REQUESTS,
-  type RenewalItem,
-  type PendingRequest,
-} from "@/types/superadmin";
+"use client";
 
-export type NotificationType = "renewal" | "request";
+import { useCallback, useEffect, useState } from "react";
+
+/* -------------------------------------------------------------------------- */
+/* Types                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export type NotificationType = "renewal" | "request" | "system" | "security";
+
+export type NotificationPriority = "HIGH" | "MEDIUM" | "LOW";
+
+export type NotificationStatus = "OVERDUE" | "DUE_SOON" | "NEW" | "INFO";
 
 export interface Notification {
   id: string;
+
   type: NotificationType;
+
   title: string;
-  subtitle: string;
+
+  message: string;
+
+  priority: NotificationPriority;
+
+  status: NotificationStatus;
+
+  adminId: string | null;
+
+  renewalId: string | null;
+
+  requestId: string | null;
+
+  isRead: boolean;
+
+  readAt: string | null;
+
+  createdAt: string;
+
+  /* ---------------------------------------------------------------------- */
+  /* UI helper fields                                                       */
+  /* ---------------------------------------------------------------------- */
+
   urgency: "high" | "medium" | "low";
+
   date: string;
+
   targetUrl: string;
 }
 
+/* -------------------------------------------------------------------------- */
+/* API Types                                                                  */
+/* -------------------------------------------------------------------------- */
+
+type ApiNotification = {
+  id: string;
+
+  type: "RENEWAL" | "ADMIN_REQUEST" | "SYSTEM" | "SECURITY";
+
+  priority: "HIGH" | "MEDIUM" | "LOW";
+
+  status: "OVERDUE" | "DUE_SOON" | "NEW" | "INFO";
+
+  title: string;
+
+  message: string;
+
+  adminId: string | null;
+
+  renewalId: string | null;
+
+  requestId: string | null;
+
+  isRead: boolean;
+
+  readAt: string | null;
+
+  createdAt: string;
+};
+
+type NotificationsApiResponse = {
+  success: boolean;
+
+  data: ApiNotification[];
+
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+
+  unreadCount: number;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
+
 const MAX_BADGE = 5;
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function getNotificationType(type: ApiNotification["type"]): NotificationType {
+  switch (type) {
+    case "RENEWAL":
+      return "renewal";
+
+    case "ADMIN_REQUEST":
+      return "request";
+
+    case "SYSTEM":
+      return "system";
+
+    case "SECURITY":
+      return "security";
+  }
 }
 
-function daysUntil(dateStr: string): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(dateStr);
-  target.setHours(0, 0, 0, 0);
-  return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+/* -------------------------------------------------------------------------- */
+
+function getUrgency(
+  priority: ApiNotification["priority"],
+): "high" | "medium" | "low" {
+  switch (priority) {
+    case "HIGH":
+      return "high";
+
+    case "LOW":
+      return "low";
+
+    case "MEDIUM":
+    default:
+      return "medium";
+  }
 }
 
-function getRenewalUrgency(item: RenewalItem): "high" | "medium" | "low" {
-  if (item.status === "Overdue") return "high";
-  const days = daysUntil(item.renewalDate);
-  if (days <= 14) return "high";
-  if (days <= 30) return "medium";
-  return "low";
+/* -------------------------------------------------------------------------- */
+
+function getTargetUrl(notification: ApiNotification): string {
+  if (notification.requestId) {
+    return `/pending-requests?requestId=${encodeURIComponent(
+      notification.requestId,
+    )}`;
+  }
+
+  if (notification.renewalId) {
+    return `/renewal?renewalId=${encodeURIComponent(notification.renewalId)}`;
+  }
+
+  return "/notifications";
 }
 
-function getRequestUrgency(item: PendingRequest): "high" | "medium" | "low" {
-  if (item.status === "Pending") return "medium";
-  return "low";
+/* -------------------------------------------------------------------------- */
+
+function mapNotification(notification: ApiNotification): Notification {
+  return {
+    id: notification.id,
+
+    type: getNotificationType(notification.type),
+
+    title: notification.title,
+
+    message: notification.message,
+
+    priority: notification.priority,
+
+    status: notification.status,
+
+    adminId: notification.adminId,
+
+    renewalId: notification.renewalId,
+
+    requestId: notification.requestId,
+
+    isRead: notification.isRead,
+
+    readAt: notification.readAt,
+
+    createdAt: notification.createdAt,
+
+    /* UI compatibility */
+    urgency: getUrgency(notification.priority),
+
+    date: notification.createdAt,
+
+    targetUrl: getTargetUrl(notification),
+  };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Hook                                                                       */
+/* -------------------------------------------------------------------------- */
 
 export function useNotifications() {
-  return useMemo(() => {
-    // ── Renewal notifications (Due Soon + Overdue) ────────────────────────
-    const renewalNotifs: Notification[] = INITIAL_RENEWALS.filter(
-      (r) => r.status === "Due Soon" || r.status === "Overdue"
-    )
-      .sort((a, b) => new Date(a.renewalDate).getTime() - new Date(b.renewalDate).getTime())
-      .map((r) => ({
-        id: r.id,
-        type: "renewal" as NotificationType,
-        title:
-          r.status === "Overdue"
-            ? `Overdue — ${r.businessName}`
-            : `Due Soon — ${r.businessName}`,
-        subtitle: `${r.adminName} · Renewal on ${formatDate(r.renewalDate)} · ₹${r.amount.toLocaleString("en-IN")}`,
-        urgency: getRenewalUrgency(r),
-        date: r.renewalDate,
-        targetUrl: `/renewal?search=${encodeURIComponent(r.businessName)}`,
-      }));
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
-    // ── Request notifications (Pending + In-progress) ─────────────────────
-    const requestNotifs: Notification[] = INITIAL_PENDING_REQUESTS.filter(
-      (p) => p.status === "Pending" || p.status === "In-progress"
-    )
-      .sort((a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime())
-      .map((p) => ({
-        id: p.id,
-        type: "request" as NotificationType,
-        title:
-          p.status === "Pending"
-            ? `New Request — ${p.name}`
-            : `In Progress — ${p.name}`,
-        subtitle: `${p.city} · ${p.desc.slice(0, 60)}${p.desc.length > 60 ? "…" : ""}`,
-        urgency: getRequestUrgency(p),
-        date: p.createdDate,
-        targetUrl: `/pending-requests?search=${encodeURIComponent(p.name)}`,
-      }));
+  const [totalCount, setTotalCount] = useState(0);
 
-    // Merge: renewals first (higher priority), then requests
-    const all: Notification[] = [...renewalNotifs, ...requestNotifs];
+  const [unreadCount, setUnreadCount] = useState(0);
 
-    const totalCount = all.length;
-    const badgeLabel = totalCount > MAX_BADGE ? `${MAX_BADGE}+` : totalCount > 0 ? `${totalCount}` : "";
-    const hasNotifications = totalCount > 0;
+  const [loading, setLoading] = useState(false);
 
-    return { notifications: all, totalCount, badgeLabel, hasNotifications };
+  const [error, setError] = useState<string | null>(null);
+
+  /* ------------------------------------------------------------------------ */
+  /* Fetch Notifications                                                      */
+  /* ------------------------------------------------------------------------ */
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch("/api/notifications?page=1&limit=100", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      const result: NotificationsApiResponse = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error("Failed to fetch notifications");
+      }
+
+      const mapped = result.data.map(mapNotification);
+
+      setNotifications(mapped);
+
+      setTotalCount(result.pagination.total);
+
+      setUnreadCount(result.unreadCount);
+    } catch (error) {
+      console.error("FETCH_NOTIFICATIONS_ERROR:", error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch notifications",
+      );
+
+      setNotifications([]);
+
+      setTotalCount(0);
+
+      setUnreadCount(0);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  /* ------------------------------------------------------------------------ */
+  /* Initial Fetch                                                            */
+  /* ------------------------------------------------------------------------ */
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Mark One As Read                                                         */
+  /* ------------------------------------------------------------------------ */
+
+  const markAsRead = useCallback(async (id: string) => {
+    try {
+      const response = await fetch(`/api/notifications/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          isRead: true,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error("Failed to mark notification as read");
+      }
+
+      setNotifications((current) =>
+        current.map((notification) =>
+          notification.id === id
+            ? {
+                ...notification,
+                isRead: true,
+                readAt: new Date().toISOString(),
+              }
+            : notification,
+        ),
+      );
+
+      setUnreadCount((current) => Math.max(current - 1, 0));
+    } catch (error) {
+      console.error("MARK_NOTIFICATION_READ_ERROR:", error);
+    }
+  }, []);
+
+  /* ------------------------------------------------------------------------ */
+  /* Mark All As Read                                                         */
+  /* ------------------------------------------------------------------------ */
+
+  const markAllAsRead = useCallback(async () => {
+    try {
+      const response = await fetch("/api/notifications/read-all", {
+        method: "PATCH",
+        credentials: "include",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error("Failed to mark all notifications as read");
+      }
+
+      setNotifications((current) =>
+        current.map((notification) => ({
+          ...notification,
+          isRead: true,
+          readAt: new Date().toISOString(),
+        })),
+      );
+
+      setUnreadCount(0);
+    } catch (error) {
+      console.error("MARK_ALL_NOTIFICATIONS_READ_ERROR:", error);
+    }
+  }, []);
+
+  /* ------------------------------------------------------------------------ */
+  /* Return                                                                   */
+  /* ------------------------------------------------------------------------ */
+
+  const badgeLabel =
+    unreadCount > MAX_BADGE
+      ? `${MAX_BADGE}+`
+      : unreadCount > 0
+        ? `${unreadCount}`
+        : "";
+
+  const hasNotifications = notifications.length > 0;
+
+  return {
+    notifications,
+
+    totalCount,
+
+    unreadCount,
+
+    badgeLabel,
+
+    hasNotifications,
+
+    loading,
+
+    error,
+
+    refresh: fetchNotifications,
+
+    markAsRead,
+
+    markAllAsRead,
+  };
 }
