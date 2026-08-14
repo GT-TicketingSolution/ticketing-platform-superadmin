@@ -31,10 +31,21 @@ export default function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [isSuccess, setIsSuccess] = useState(false);
 
   const [selectedLang, setSelectedLang] = useState("English");
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
+
+  const [token, setToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const resetToken = params.get("token");
+
+    setToken(resetToken);
+  }, []);
 
   const {
     register,
@@ -61,15 +72,14 @@ export default function ResetPasswordPage() {
   const hasNumber = /[0-9]/.test(watchedPassword);
 
   const onSubmit = async (data: ResetPasswordFormData) => {
-    setIsSubmitting(true);
+    if (!token) {
+      setErrorMessage("Invalid or missing reset token.");
+      return;
+    }
 
     try {
-      const token = new URLSearchParams(window.location.search).get("token");
-
-      if (!token) {
-        alert("Invalid or missing password reset token.");
-        return;
-      }
+      setIsSubmitting(true);
+      setErrorMessage("");
 
       const response = await fetch("/api/auth/reset-password", {
         method: "POST",
@@ -85,15 +95,18 @@ export default function ResetPasswordPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        alert(result.message || "Failed to reset password.");
+        setErrorMessage(result.message || "Unable to reset password.");
         return;
       }
 
-      setIsSuccess(true);
+      setSuccessMessage(result.message || "Password reset successfully.");
+
+      // Optional: redirect to login after successful reset
+      // router.push("/login");
     } catch (error) {
       console.error("RESET_PASSWORD_ERROR:", error);
 
-      alert("Something went wrong. Please try again.");
+      setErrorMessage("Something went wrong. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -269,6 +282,9 @@ export default function ResetPasswordPage() {
               strokeWidth={1.8}
             />
           </div>
+
+          {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
+          {successMessage && <p style={{ color: "green" }}>{successMessage}</p>}
 
           {!isSuccess ? (
             <>

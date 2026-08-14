@@ -3,8 +3,10 @@ import crypto from "crypto";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
-
 import { platformAdmin, passwordResetTokens } from "@/server/db/schema";
+
+import { resend } from "@/lib/email/resend";
+import { passwordResetEmail } from "@/lib/email/templates/password-reset";
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,8 +41,7 @@ export async function POST(request: NextRequest) {
     const admin = result[0];
 
     /*
-     * Don't reveal whether the Super Admin
-     * account exists.
+     * Don't reveal whether the Super Admin account exists.
      */
     if (!admin) {
       return NextResponse.json({
@@ -81,17 +82,40 @@ export async function POST(request: NextRequest) {
     /* Reset URL                                                              */
     /* ---------------------------------------------------------------------- */
 
-    const resetUrl =
-      `${process.env.NEXT_PUBLIC_APP_URL}` +
-      `/reset-password?token=${rawToken}`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
-    /*
-     * Development only.
-     *
-     * In production this URL should be sent
-     * through your email service.
-     */
-    console.log("PASSWORD RESET URL:", resetUrl);
+    if (!appUrl) {
+      throw new Error("NEXT_PUBLIC_APP_URL is not configured");
+    }
+
+    const resetUrl = `${appUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+    /* ---------------------------------------------------------------------- */
+    /* Send Email                                                             */
+    /* ---------------------------------------------------------------------- */
+
+    const { data, error } = await resend.emails.send({
+      from: "Ticketing Solution <noreply@ticketingsolution.in>",
+      to: [admin.email],
+      subject: "Reset Your Super Admin Password",
+      html: passwordResetEmail({
+        resetUrl,
+      }),
+    });
+
+    if (error) {
+      console.error("RESEND_EMAIL_ERROR:", error);
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unable to send password reset email",
+        },
+        { status: 500 },
+      );
+    }
+
+    console.log("PASSWORD_RESET_EMAIL_SENT:", data?.id);
 
     /* ---------------------------------------------------------------------- */
     /* Response                                                               */
