@@ -3,13 +3,23 @@ interface PasswordResetEmailProps {
 }
 
 export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
+  const appName = process.env.TICKETING_SOLUTION_NAME ?? "Ticketing Solution";
+
+  const subject = process.env.RESEND_AUTH_SUBJECT ?? "Reset Your Password";
+
+  const authSignature = process.env.RESEND_AUTH_SIGNATURE ?? appName;
+
+  const resetExpiry = process.env.RESEND_AUTH_RESET_EXPIRY ?? "30 minutes";
+
+  const accountType = process.env.RESEND_AUTH_ACCOUNT_TYPE ?? "Super Admin";
+
   return `
     <!DOCTYPE html>
     <html>
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Reset Your Password</title>
+        <title>${subject}</title>
       </head>
 
       <body
@@ -30,6 +40,7 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
           "
         >
+          <!-- Header -->
           <div
             style="
               background: #173f63;
@@ -44,11 +55,13 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
                 font-size: 24px;
               "
             >
-              Ticketing Solution
+              ${appName}
             </h1>
           </div>
 
+          <!-- Content -->
           <div style="padding: 36px 32px;">
+
             <h2
               style="
                 margin: 0 0 16px;
@@ -56,7 +69,7 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
                 font-size: 22px;
               "
             >
-              Reset Your Password
+              ${subject}
             </h2>
 
             <p
@@ -68,7 +81,7 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
               "
             >
               We received a request to reset the password for your
-              Super Admin account.
+              ${accountType} account.
             </p>
 
             <p
@@ -80,9 +93,10 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
               "
             >
               Click the button below to create a new password.
-              This link will expire in 30 minutes.
+              This link will expire in ${resetExpiry}.
             </p>
 
+            <!-- Reset Button -->
             <div style="text-align: center; margin: 30px 0;">
               <a
                 href="${resetUrl}"
@@ -101,6 +115,7 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
               </a>
             </div>
 
+            <!-- Ignore Message -->
             <p
               style="
                 margin: 28px 0 0;
@@ -113,6 +128,7 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
               ignore this email.
             </p>
 
+            <!-- Security Message -->
             <p
               style="
                 margin: 18px 0 0;
@@ -123,8 +139,10 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
             >
               For security reasons, this link can only be used once.
             </p>
+
           </div>
 
+          <!-- Footer -->
           <div
             style="
               padding: 20px 32px;
@@ -139,7 +157,7 @@ export function passwordResetEmail({ resetUrl }: PasswordResetEmailProps) {
                 font-size: 12px;
               "
             >
-              © ${new Date().getFullYear()} Ticketing Solution.
+              © ${new Date().getFullYear()} ${authSignature}.
               All rights reserved.
             </p>
           </div>

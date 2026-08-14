@@ -3,12 +3,53 @@ import { eq } from "drizzle-orm";
 import { Resend } from "resend";
 
 import { db } from "@/server/db";
-
 import { renewals, renewalNotifications } from "@/server/db/schema";
-
 import { admins } from "@/server/db/schema/admins";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+/* -------------------------------------------------------------------------- */
+/* Resend Configuration                                                       */
+/* -------------------------------------------------------------------------- */
+
+const resendApiKey = process.env.RESEND_API_KEY;
+
+if (!resendApiKey) {
+  throw new Error("RESEND_API_KEY is not configured");
+}
+
+const resend = new Resend(resendApiKey);
+
+/* -------------------------------------------------------------------------- */
+/* Renewal Email Configuration                                                */
+/* -------------------------------------------------------------------------- */
+
+const resendRenewalFromEmail = process.env.RESEND_RENEWAL_FROM_EMAIL ?? "";
+
+const resendRenewalFromName = process.env.RESEND_RENEWAL_FROM_NAME ?? "";
+
+const renewalSubject =
+  process.env.RESEND_RENEWAL_SUBJECT ?? "Subscription Renewal Reminder";
+
+const renewalSignature =
+  process.env.RESEND_RENEWAL_SIGNATURE ?? "Ticketing Solution Renewals";
+
+const ticketingSolutionName =
+  process.env.TICKETING_SOLUTION_NAME ?? "Ticketing Solution";
+
+/* -------------------------------------------------------------------------- */
+/* Validate Configuration                                                     */
+/* -------------------------------------------------------------------------- */
+
+if (!resendRenewalFromEmail) {
+  throw new Error("RESEND_RENEWAL_FROM_EMAIL is not configured");
+}
+
+if (!resendRenewalFromName) {
+  throw new Error("RESEND_RENEWAL_FROM_NAME is not configured");
+}
+
+/* -------------------------------------------------------------------------- */
+/* API                                                                        */
+/* -------------------------------------------------------------------------- */
 
 export async function POST(
   request: NextRequest,
@@ -63,8 +104,6 @@ export async function POST(
     /* Email Data                                                              */
     /* ---------------------------------------------------------------------- */
 
-    const subject = "Subscription Renewal Reminder";
-
     const renewalDate = renewal.dueDate.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "long",
@@ -77,15 +116,21 @@ export async function POST(
     });
 
     /* ---------------------------------------------------------------------- */
+    /* Sender                                                                  */
+    /* ---------------------------------------------------------------------- */
+
+    const fromEmail = `${resendRenewalFromName} <${resendRenewalFromEmail}>`;
+
+    /* ---------------------------------------------------------------------- */
     /* Send Email                                                              */
     /* ---------------------------------------------------------------------- */
 
     const { data, error } = await resend.emails.send({
-      from: "Ticketing Solution Support <support@ticketingsolution.in>",
+      from: fromEmail,
 
       to: [admin.email],
 
-      subject,
+      subject: renewalSubject,
 
       html: `
         <div
@@ -121,7 +166,7 @@ export async function POST(
                   font-weight: 700;
                 "
               >
-                Ticketing Solution
+                ${ticketingSolutionName}
               </h1>
             </div>
 
@@ -143,7 +188,7 @@ export async function POST(
                   font-weight: 700;
                 "
               >
-                Subscription Renewal Reminder
+                ${renewalSubject}
               </h2>
 
               <!-- Greeting -->
@@ -167,7 +212,7 @@ export async function POST(
                   line-height: 1.6;
                 "
               >
-                This is a reminder that your Ticketing Solution
+                This is a reminder that your ${ticketingSolutionName}
                 subscription is due for renewal.
               </p>
 
@@ -238,8 +283,6 @@ export async function POST(
                 to ensure uninterrupted access to your services.
               </p>
 
-            
-
               <!-- Additional Information -->
               <p
                 style="
@@ -264,7 +307,7 @@ export async function POST(
               >
                 Regards,<br />
                 <strong style="color: #182033;">
-                  Ticketing Solution Support
+                  ${renewalSignature}
                 </strong>
               </p>
 
@@ -286,7 +329,7 @@ export async function POST(
         channel: "EMAIL",
         status: "FAILED",
         recipientEmail: admin.email,
-        subject,
+        subject: renewalSubject,
         sentAt: null,
         errorMessage: error.message,
       });
@@ -313,7 +356,7 @@ export async function POST(
       channel: "EMAIL",
       status: "SENT",
       recipientEmail: admin.email,
-      subject,
+      subject: renewalSubject,
       sentAt: new Date(),
       errorMessage: null,
     });
