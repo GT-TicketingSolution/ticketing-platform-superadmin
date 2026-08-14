@@ -214,18 +214,46 @@ export default function RenewalPage() {
 
   const handleSendNotification = async (id: string, adminName: string) => {
     const confirmed = await confirmNotify(adminName);
+
     if (!confirmed) return;
 
-    const now = new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    setRenewals(
-      renewals.map((r) =>
-        r.id === id ? { ...r, lastNotificationSent: now } : r,
-      ),
-    );
-    showToast(`Renewal reminder sent to "${adminName}" at ${now}`, "info");
+    try {
+      const response = await fetch(`/api/renewals/${id}/notify`, {
+        method: "POST",
+        credentials: "include",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to send notification");
+      }
+
+      const now = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      setRenewals((current) =>
+        current.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                lastNotificationSent: now,
+              }
+            : r,
+        ),
+      );
+
+      showToast(`Renewal reminder sent to "${adminName}"`, "success");
+    } catch (error) {
+      console.error("SEND_RENEWAL_NOTIFICATION_ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Failed to send notification",
+        "error",
+      );
+    }
   };
 
   const columns: Column<RenewalItem>[] = [

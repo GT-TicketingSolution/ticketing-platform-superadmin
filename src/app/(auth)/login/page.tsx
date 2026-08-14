@@ -102,9 +102,34 @@ export default function LoginPage() {
 
   const onForgotSubmit = async (data: ForgotPasswordFormData) => {
     setForgotSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    setForgotSubmitting(false);
-    setForgotSuccess(true);
+
+    try {
+      const response = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: data.email.trim().toLowerCase(),
+        }),
+      });
+
+      const result = await response.json();
+
+      console.log("FORGOT_PASSWORD_RESPONSE:", result);
+
+      if (!response.ok || !result.success) {
+        console.error("FORGOT_PASSWORD_ERROR:", result.message);
+
+        return;
+      }
+
+      setForgotSuccess(true);
+    } catch (error) {
+      console.error("FORGOT_PASSWORD_ERROR:", error);
+    } finally {
+      setForgotSubmitting(false);
+    }
   };
 
   const handleBackToLogin = () => {
