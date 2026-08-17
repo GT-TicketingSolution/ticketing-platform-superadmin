@@ -68,9 +68,8 @@ const inputStyle = (hasError: boolean): React.CSSProperties => ({
   transition: "border-color 0.18s",
 });
 
-// ─── All available module roles (matching sidebar) ────────────────────────────
+// ─── All available module roles 
 const ALL_ROLES: string[] = [
-  "Ticket Booking",
   "Bookings",
   "Transactions",
   "Invoices",
@@ -80,9 +79,10 @@ const ALL_ROLES: string[] = [
   "Customer Management",
   "Complimentary Passes",
   "Reports",
-  "User Management",
+  "Manager Management",
+  "Staff Management",
+  "Seat Management",
   "Settings",
-  "Backup",
 ];
 
 // ─── Date calculation helpers ───────────────────────────────────────────────
@@ -2286,6 +2286,10 @@ export default function AdminPage() {
                     >
                       <input
                         type="checkbox"
+                        checked={
+                          watchedRoles.length === ALL_ROLES.length &&
+                          ALL_ROLES.length > 0
+                        }
                         onChange={(e) =>
                           setValue(
                             "rolesAccess",
@@ -2309,11 +2313,11 @@ export default function AdminPage() {
                       background: "#FFFFFF",
                     }}
                   >
-                    {availableModules.map((module, idx) => {
-                      const isChecked = selectedModules.includes(module.id);
+                    {ALL_ROLES.map((role, idx) => {
+                      const isChecked = watchedRoles.includes(role);
                       return (
                         <label
-                          key={module.id}
+                          key={role}
                           style={{
                             display: "flex",
                             alignItems: "center",
@@ -2340,11 +2344,12 @@ export default function AdminPage() {
                             type="checkbox"
                             checked={isChecked}
                             onChange={(e) => {
-                              setSelectedModules((prev) =>
-                                e.target.checked
-                                  ? [...prev, module.id]
-                                  : prev.filter((id) => id !== module.id),
-                              );
+                              const newRoles = e.target.checked
+                                ? [...watchedRoles, role]
+                                : watchedRoles.filter((r) => r !== role);
+                              setValue("rolesAccess", newRoles, {
+                                shouldValidate: true,
+                              });
                             }}
                             style={{
                               accentColor: colors.brand.accent,
@@ -2363,7 +2368,7 @@ export default function AdminPage() {
                               transition: "color 0.15s",
                             }}
                           >
-                            {module.name}
+                            {role}
                           </span>
                         </label>
                       );
