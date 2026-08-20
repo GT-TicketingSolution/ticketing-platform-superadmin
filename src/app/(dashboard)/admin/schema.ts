@@ -25,9 +25,7 @@ export const addAdminSchema = z.object({
     .number({ message: "Renewal amount must be a number" })
     .min(1000, "Minimum renewal amount is ₹1,000")
     .max(10000000, "Amount seems too large"),
-  rolesAccess: z
-    .array(z.string())
-    .min(1, "At least one role must be selected"),
+  rolesAccess: z.array(z.string()),
   joinedDate: z.string().optional(),
   nextRenewalDate: z.string().optional(),
 });

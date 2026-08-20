@@ -68,22 +68,28 @@ const inputStyle = (hasError: boolean): React.CSSProperties => ({
   transition: "border-color 0.18s",
 });
 
-// ─── All available module roles (matching sidebar) ────────────────────────────
+// ─── Permission-based module roles (Excludes default modules) 
 const ALL_ROLES: string[] = [
-  "Ticket Booking",
-  "Bookings",
-  "Transactions",
-  "Invoices",
-  "Inventory / Capacity",
-  "CCTV Monitoring",
-  "Attraction Management",
+  "Complimentary Management",
   "Customer Management",
-  "Complimentary Passes",
-  "Reports",
-  "User Management",
-  "Settings",
-  "Backup",
+  "Seat Management",
+  "CCTV Monitoring",
 ];
+
+const DEFAULT_MODULE_NAMES = [
+  "manager management",
+  "staff management",
+  "attraction management",
+  "bookings",
+  "transactions",
+  "invoices",
+  "inventory and capacity",
+  "inventory / capacity",
+  "inventory",
+  "reports",
+  "settings",
+];
+
 
 // ─── Date calculation helpers ───────────────────────────────────────────────
 const getTodayDateStr = () => new Date().toISOString().slice(0, 10);
@@ -344,7 +350,20 @@ export default function AdminPage() {
         throw new Error(result.message || "Failed to fetch modules");
       }
 
-      setAvailableModules(result.data || []);
+      const allModules: { id: string; name: string; key: string }[] =
+        result.data || [];
+
+      // Filter out default modules so only permission-based modules are shown in Module Access UI
+      const permissionOnlyModules = allModules.filter(
+        (m) =>
+          !DEFAULT_MODULE_NAMES.some(
+            (defName) =>
+              defName.replace(/[^a-z0-9]/g, "") ===
+              m.name.toLowerCase().replace(/[^a-z0-9]/g, ""),
+          ),
+      );
+
+      setAvailableModules(permissionOnlyModules);
     } catch (error) {
       console.error("FETCH_MODULES_ERROR:", error);
 
@@ -442,7 +461,38 @@ export default function AdminPage() {
 
       const createdAdmin = mapApiAdminToAdminUser(result.data);
 
-      setAdmins((prev) => [createdAdmin, ...prev]);
+      if (data.rolesAccess && data.rolesAccess.length > 0 && createdAdmin.id) {
+        for (const role of data.rolesAccess) {
+          const matchedModule = availableModules.find(
+            (m) =>
+              m.name.toLowerCase().trim() === role.toLowerCase().trim() ||
+              m.key.toLowerCase().trim() === role.toLowerCase().trim(),
+          );
+          if (matchedModule) {
+            try {
+              await fetch(`/api/admins/${createdAdmin.id}/modules`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  moduleId: matchedModule.id,
+                }),
+              });
+            } catch (err) {
+              console.error("GRANT_MODULE_ACCESS_ON_CREATE_ERROR:", err);
+            }
+          }
+        }
+      }
+
+      setAdmins((prev) => [
+        {
+          ...createdAdmin,
+          rolesAccess: data.rolesAccess || [],
+        },
+        ...prev,
+      ]);
 
       reset();
 
@@ -1203,12 +1253,15 @@ export default function AdminPage() {
                 >
                   <input
                     type="checkbox"
-                    checked={selectedModules.includes(module.id)}
+                    checked={
+                      availableModules.length > 0 &&
+                      selectedModules.length === availableModules.length
+                    }
                     onChange={(e) => {
-                      setSelectedModules((prev) =>
+                      setSelectedModules(
                         e.target.checked
-                          ? [...prev, module.id]
-                          : prev.filter((id) => id !== module.id),
+                          ? availableModules.map((m) => m.id)
+                          : [],
                       );
                     }}
                     style={{
@@ -2286,6 +2339,10 @@ export default function AdminPage() {
                     >
                       <input
                         type="checkbox"
+                        checked={
+                          watchedRoles.length === ALL_ROLES.length &&
+                          ALL_ROLES.length > 0
+                        }
                         onChange={(e) =>
                           setValue(
                             "rolesAccess",
@@ -2309,11 +2366,11 @@ export default function AdminPage() {
                       background: "#FFFFFF",
                     }}
                   >
-                    {availableModules.map((module, idx) => {
-                      const isChecked = selectedModules.includes(module.id);
+                    {ALL_ROLES.map((role, idx) => {
+                      const isChecked = watchedRoles.includes(role);
                       return (
                         <label
-                          key={module.id}
+                          key={role}
                           style={{
                             display: "flex",
                             alignItems: "center",
@@ -2340,11 +2397,12 @@ export default function AdminPage() {
                             type="checkbox"
                             checked={isChecked}
                             onChange={(e) => {
-                              setSelectedModules((prev) =>
-                                e.target.checked
-                                  ? [...prev, module.id]
-                                  : prev.filter((id) => id !== module.id),
-                              );
+                              const newRoles = e.target.checked
+                                ? [...watchedRoles, role]
+                                : watchedRoles.filter((r) => r !== role);
+                              setValue("rolesAccess", newRoles, {
+                                shouldValidate: true,
+                              });
                             }}
                             style={{
                               accentColor: colors.brand.accent,
@@ -2363,7 +2421,7 @@ export default function AdminPage() {
                               transition: "color 0.15s",
                             }}
                           >
-                            {module.name}
+                            {role}
                           </span>
                         </label>
                       );
