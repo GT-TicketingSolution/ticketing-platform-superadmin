@@ -68,7 +68,7 @@ async function getDashboardStats() {
 
   const totalEarningsResult = await db
     .select({
-      total: sql<string>`coalesce(sum(${renewals.amount}), 0)`,
+      total: sql<number>`coalesce(sum(${renewals.amount}), 0)::float`,
     })
     .from(renewals)
     .where(
@@ -80,7 +80,7 @@ async function getDashboardStats() {
     activeAdmins: activeAdminsResult[0]?.count ?? 0,
     pendingRequests: pendingRequestsResult[0]?.count ?? 0,
     upcomingRenewals: upcomingRenewalsResult[0]?.count ?? 0,
-    totalEarnings: totalEarningsResult[0]?.total ?? "0",
+    totalEarnings: totalEarningsResult[0]?.total ?? 0,
   };
 }
 
@@ -92,7 +92,7 @@ async function getYearlyEarnings() {
   const result = await db
     .select({
       year: sql<number>`extract(year from ${renewals.paymentDate})::int`,
-      amount: sql<string>`coalesce(sum(${renewals.amount}), 0)`,
+      amount: sql<number>`coalesce(sum(${renewals.amount}), 0)::float`,
     })
     .from(renewals)
     .where(
@@ -116,7 +116,7 @@ async function getMonthlyEarnings(year: number) {
   const result = await db
     .select({
       month: sql<number>`extract(month from ${renewals.paymentDate})::int`,
-      amount: sql<string>`coalesce(sum(${renewals.amount}), 0)`,
+      amount: sql<number>`coalesce(sum(${renewals.amount}), 0)::float`,
     })
     .from(renewals)
     .where(
@@ -153,7 +153,7 @@ async function getMonthlyEarnings(year: number) {
     return {
       month: monthNumber,
       monthName,
-      amount: existing?.amount ?? "0",
+      amount: existing?.amount ?? 0,
     };
   });
 }
@@ -166,7 +166,7 @@ async function getCityRevenue() {
   const result = await db
     .select({
       city: admins.city,
-      amount: sql<string>`coalesce(sum(${renewals.amount}), 0)`,
+      amount: sql<number>`coalesce(sum(${renewals.amount}), 0)::float`,
     })
     .from(renewals)
     .innerJoin(admins, eq(renewals.adminId, admins.id))
@@ -184,7 +184,11 @@ async function getCityRevenue() {
 /* -------------------------------------------------------------------------- */
 
 async function getRecentActiveAdmins(limit = 5) {
-  return await db
+  // ------------------------------------------------------------------------
+  // Get recent active admins
+  // ------------------------------------------------------------------------
+
+  const activeAdmins = await db
     .select({
       id: admins.id,
       name: admins.fullName,
@@ -193,37 +197,74 @@ async function getRecentActiveAdmins(limit = 5) {
       city: admins.city,
       subdomain: admins.subdomain,
       joinedDate: admins.joinedAt,
-
-      nextRenewal: sql<Date | null>`
-        (
-          select min(r.due_date)
-          from renewals r
-          where
-            r.admin_id = ${admins.id}
-            and r.status = 'PENDING'
-            and r.due_date > now()
-        )
-      `,
-
-      renewalAmount: sql<string | null>`
-        (
-          select r.amount
-          from renewals r
-          where
-            r.admin_id = ${admins.id}
-            and r.status = 'PENDING'
-            and r.due_date > now()
-          order by r.due_date asc
-          limit 1
-        )
-      `,
     })
     .from(admins)
     .where(eq(admins.status, "ACTIVE"))
     .orderBy(desc(admins.createdAt))
     .limit(limit);
-}
 
+  if (activeAdmins.length === 0) {
+    return [];
+  }
+
+  // ------------------------------------------------------------------------
+  // Get next pending renewal for these admins
+  // ------------------------------------------------------------------------
+
+  const adminIds = activeAdmins.map((admin) => admin.id);
+
+  const renewalData = await db
+    .select({
+      adminId: renewals.adminId,
+      dueDate: renewals.dueDate,
+      amount: renewals.amount,
+    })
+    .from(renewals)
+    .where(
+      and(
+        sql`${renewals.adminId} IN ${adminIds}`,
+        eq(renewals.status, "PENDING"),
+        gt(renewals.dueDate, new Date()),
+      ),
+    )
+    .orderBy(asc(renewals.dueDate));
+
+  // ------------------------------------------------------------------------
+  // Attach the earliest renewal to each admin
+  // ------------------------------------------------------------------------
+
+  const renewalMap = new Map<
+    string,
+    {
+      dueDate: Date;
+      amount: number;
+    }
+  >();
+
+  for (const renewal of renewalData) {
+    // Only keep the earliest upcoming renewal for each admin
+    if (!renewalMap.has(renewal.adminId)) {
+      renewalMap.set(renewal.adminId, {
+        dueDate: renewal.dueDate,
+        amount: Number(renewal.amount),
+      });
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // Return admins with next renewal information
+  // ------------------------------------------------------------------------
+
+  return activeAdmins.map((admin) => {
+    const renewal = renewalMap.get(admin.id);
+
+    return {
+      ...admin,
+      nextRenewal: renewal?.dueDate ?? null,
+      renewalAmount: renewal?.amount ?? null,
+    };
+  });
+}
 /* -------------------------------------------------------------------------- */
 /* Main Dashboard                                                             */
 /* -------------------------------------------------------------------------- */
@@ -263,16 +304,25 @@ export async function getDashboard(filters: DashboardFilters = {}) {
 
   let growthRate = 0;
 
-  if (yearlyEarnings.length >= 2) {
+  if (yearlyEarnings.length >= 1) {
     const current = yearlyEarnings[yearlyEarnings.length - 1];
 
-    const previous = yearlyEarnings[yearlyEarnings.length - 2];
+    const currentAmount = Number(current.amount ?? 0);
 
-    const currentAmount = Number(current.amount);
-    const previousAmount = Number(previous.amount);
+    // Find previous year's revenue
+    const previousYear = yearlyEarnings.find(
+      (item) => item.year === current.year - 1,
+    );
 
-    if (previousAmount > 0) {
+    const previousAmount = Number(previousYear?.amount ?? 0);
+
+    if (currentAmount > 0 && previousAmount <= 0) {
+      // Previous year had no revenue, current year has revenue
+      growthRate = 100;
+    } else if (previousAmount > 0) {
       growthRate = ((currentAmount - previousAmount) / previousAmount) * 100;
+    } else {
+      growthRate = 0;
     }
   }
 

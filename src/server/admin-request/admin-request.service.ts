@@ -19,7 +19,13 @@ import { createAuditLog } from "@/server/audit/audit.service";
 /* -------------------------------------------------------------------------- */
 
 export type CreateAdminRequestInput = {
-  adminId: string;
+  adminId: string | null;
+
+  fullName: string;
+  phone: string;
+  email: string;
+  city?: string | null;
+
   description: string;
   internalNotes?: string | null;
 };
@@ -93,10 +99,6 @@ export async function getAdminRequests({
 }: GetAdminRequestsInput = {}) {
   const offset = (page - 1) * limit;
 
-  /* ------------------------------------------------------------------------ */
-  /* Filters                                                                  */
-  /* ------------------------------------------------------------------------ */
-
   const conditions = [];
 
   if (search?.trim()) {
@@ -106,6 +108,14 @@ export async function getAdminRequests({
       or(
         ilike(adminRequests.requestNumber, searchValue),
         ilike(adminRequests.description, searchValue),
+
+        // Request's stored applicant details
+        ilike(adminRequests.fullName, searchValue),
+        ilike(adminRequests.phone, searchValue),
+        ilike(adminRequests.email, searchValue),
+        ilike(adminRequests.city, searchValue),
+
+        // Existing Admin details, if linked
         ilike(admins.fullName, searchValue),
         ilike(admins.phone, searchValue),
         ilike(admins.email, searchValue),
@@ -121,15 +131,12 @@ export async function getAdminRequests({
   if (adminId) {
     conditions.push(eq(adminRequests.adminId, adminId));
   }
+
   if (city?.trim()) {
-    conditions.push(ilike(admins.city, city.trim()));
+    conditions.push(ilike(adminRequests.city, city.trim()));
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-  /* ------------------------------------------------------------------------ */
-  /* Fetch + Count                                                            */
-  /* ------------------------------------------------------------------------ */
 
   const [data, totalResult] = await Promise.all([
     db
@@ -138,23 +145,27 @@ export async function getAdminRequests({
         requestNumber: adminRequests.requestNumber,
         adminId: adminRequests.adminId,
 
-        // Admin details
+        // Stored request/applicant details
+        requestName: adminRequests.fullName,
+        requestPhone: adminRequests.phone,
+        requestEmail: adminRequests.email,
+        requestCity: adminRequests.city,
+
+        // Existing Admin details
         adminName: admins.fullName,
         adminPhone: admins.phone,
         adminEmail: admins.email,
         adminCity: admins.city,
 
-        // Request details
         description: adminRequests.description,
         internalNotes: adminRequests.internalNotes,
         status: adminRequests.status,
 
-        // Dates
         createdAt: adminRequests.createdAt,
         updatedAt: adminRequests.updatedAt,
       })
       .from(adminRequests)
-      .innerJoin(admins, eq(adminRequests.adminId, admins.id))
+      .leftJoin(admins, eq(adminRequests.adminId, admins.id))
       .where(whereClause)
       .orderBy(desc(adminRequests.createdAt))
       .limit(limit)
@@ -165,12 +176,11 @@ export async function getAdminRequests({
         count: count(),
       })
       .from(adminRequests)
-      .innerJoin(admins, eq(adminRequests.adminId, admins.id))
+      .leftJoin(admins, eq(adminRequests.adminId, admins.id))
       .where(whereClause),
   ]);
 
   const total = Number(totalResult[0]?.count ?? 0);
-
   const totalPages = Math.ceil(total / limit);
 
   const formattedData = data.map((request) => ({
@@ -178,10 +188,12 @@ export async function getAdminRequests({
     requestNumber: request.requestNumber,
     adminId: request.adminId,
 
-    // Frontend fields
-    name: request.adminName ?? "",
-    phone: request.adminPhone ?? "",
-    email: request.adminEmail ?? "",
+    // Use Admin table when available,
+    // otherwise use details stored in the request.
+    name: request.adminName ?? request.requestName,
+    phone: request.adminPhone ?? request.requestPhone,
+    email: request.adminEmail ?? request.requestEmail,
+    city: request.adminCity ?? request.requestCity,
 
     desc: request.description,
     notes: request.internalNotes ?? "",
@@ -197,11 +209,8 @@ export async function getAdminRequests({
               ? "Rejected"
               : "Canceled",
 
-    city: request.adminCity ?? "",
-
     createdDate: request.createdAt.toISOString().slice(0, 10),
 
-    // Keep original API values too
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
   }));
@@ -231,6 +240,13 @@ export async function getAdminRequestById(id: string) {
       requestNumber: adminRequests.requestNumber,
       adminId: adminRequests.adminId,
 
+      // Stored request details
+      requestName: adminRequests.fullName,
+      requestPhone: adminRequests.phone,
+      requestEmail: adminRequests.email,
+      requestCity: adminRequests.city,
+
+      // Existing Admin details
       adminName: admins.fullName,
       adminPhone: admins.phone,
       adminEmail: admins.email,
@@ -244,7 +260,7 @@ export async function getAdminRequestById(id: string) {
       updatedAt: adminRequests.updatedAt,
     })
     .from(adminRequests)
-    .innerJoin(admins, eq(adminRequests.adminId, admins.id))
+    .leftJoin(admins, eq(adminRequests.adminId, admins.id))
     .where(eq(adminRequests.id, id))
     .limit(1);
 
@@ -259,9 +275,10 @@ export async function getAdminRequestById(id: string) {
     requestNumber: request.requestNumber,
     adminId: request.adminId,
 
-    name: request.adminName,
-    phone: request.adminPhone,
-    email: request.adminEmail,
+    name: request.adminName ?? request.requestName,
+    phone: request.adminPhone ?? request.requestPhone,
+    email: request.adminEmail ?? request.requestEmail,
+    city: request.adminCity ?? request.requestCity,
 
     desc: request.description,
     notes: request.internalNotes ?? "",
@@ -276,8 +293,6 @@ export async function getAdminRequestById(id: string) {
             : request.status === "REJECTED"
               ? "Rejected"
               : "Canceled",
-
-    city: request.adminCity,
 
     createdDate: request.createdAt.toISOString().slice(0, 10),
 
@@ -309,7 +324,6 @@ export async function getAdminById(adminId: string) {
 /* -------------------------------------------------------------------------- */
 /* Create Request                                                             */
 /* -------------------------------------------------------------------------- */
-
 export async function createAdminRequest(
   data: CreateAdminRequestInput,
   actorId: string,
@@ -320,7 +334,16 @@ export async function createAdminRequest(
     .insert(adminRequests)
     .values({
       requestNumber,
-      adminId: data.adminId,
+
+      // Can be NULL when Admin account does not exist yet
+      adminId: data.adminId ?? null,
+
+      // Store applicant/request details
+      fullName: data.fullName.trim(),
+      phone: data.phone.trim(),
+      email: data.email.trim().toLowerCase(),
+      city: data.city?.trim() || null,
+
       description: data.description.trim(),
       internalNotes: data.internalNotes?.trim() || null,
       status: "PENDING",
@@ -333,15 +356,8 @@ export async function createAdminRequest(
     return null;
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Get Admin Details                                                      */
-  /* ---------------------------------------------------------------------- */
-
-  const admin = await getAdminById(request.adminId);
-
-  /* ---------------------------------------------------------------------- */
-  /* Audit Log                                                              */
-  /* ---------------------------------------------------------------------- */
+  // Get existing Admin only when one exists
+  const admin = request.adminId ? await getAdminById(request.adminId) : null;
 
   await createAuditLog({
     actorId,
@@ -356,28 +372,27 @@ export async function createAdminRequest(
 
     newValues: {
       ...request,
-      adminName: admin?.fullName ?? null,
-      adminPhone: admin?.phone ?? null,
-      adminEmail: admin?.email ?? null,
-      adminCity: admin?.city ?? null,
+
+      adminName: admin?.fullName ?? request.fullName,
+      adminPhone: admin?.phone ?? request.phone,
+      adminEmail: admin?.email ?? request.email,
+      adminCity: admin?.city ?? request.city,
     },
   });
 
-  /* ---------------------------------------------------------------------- */
-  /* Notification                                                           */
-  /* ---------------------------------------------------------------------- */
-
-  await notifyAdminRequestCreated(
-    actorId, // platformAdminId
-    request.adminId, // adminId
-    request.id, // requestId
-    request.requestNumber,
-    actorId, // actorId
-  );
+  // Only notify an existing Admin
+  if (request.adminId) {
+    await notifyAdminRequestCreated(
+      actorId,
+      request.adminId,
+      request.id,
+      request.requestNumber,
+      actorId,
+    );
+  }
 
   return await getAdminRequestById(request.id);
 }
-
 /* -------------------------------------------------------------------------- */
 /* Update Request                                                             */
 /* -------------------------------------------------------------------------- */
@@ -418,8 +433,33 @@ export async function updateAdminRequest(
     requestUpdateData.status = data.status;
   }
 
+  /*
+   * ----------------------------------------------------------------------
+   * Update Applicant Details Stored On Request
+   * ----------------------------------------------------------------------
+   *
+   * These fields are important when adminId is NULL because there is
+   * no Admin record yet.
+   */
+
+  if (data.fullName !== undefined) {
+    requestUpdateData.fullName = data.fullName.trim();
+  }
+
+  if (data.phone !== undefined) {
+    requestUpdateData.phone = data.phone.trim();
+  }
+
+  if (data.email !== undefined) {
+    requestUpdateData.email = data.email.trim().toLowerCase();
+  }
+
+  if (data.city !== undefined) {
+    requestUpdateData.city = data.city.trim();
+  }
+
   /* ---------------------------------------------------------------------- */
-  /* Update Admin                                                           */
+  /* Update Existing Admin                                                  */
   /* ---------------------------------------------------------------------- */
 
   const adminUpdateData: Partial<typeof admins.$inferInsert> = {
@@ -449,7 +489,7 @@ export async function updateAdminRequest(
   }
 
   /* ---------------------------------------------------------------------- */
-  /* Update Request                                                         */
+  /* Update Request                                                          */
   /* ---------------------------------------------------------------------- */
 
   const requestResult = await db
@@ -465,10 +505,10 @@ export async function updateAdminRequest(
   }
 
   /* ---------------------------------------------------------------------- */
-  /* Update Admin                                                           */
+  /* Update Admin Only If Admin Exists                                      */
   /* ---------------------------------------------------------------------- */
 
-  if (shouldUpdateAdmin) {
+  if (shouldUpdateAdmin && updatedRequest.adminId) {
     await db
       .update(admins)
       .set(adminUpdateData)
@@ -479,7 +519,9 @@ export async function updateAdminRequest(
   /* Get Updated Admin                                                      */
   /* ---------------------------------------------------------------------- */
 
-  const updatedAdmin = await getAdminById(updatedRequest.adminId);
+  const updatedAdmin = updatedRequest.adminId
+    ? await getAdminById(updatedRequest.adminId)
+    : null;
 
   /* ---------------------------------------------------------------------- */
   /* Determine Audit Action                                                 */
@@ -510,14 +552,27 @@ export async function updateAdminRequest(
     newValues: {
       ...updatedRequest,
 
-      adminName: updatedAdmin?.fullName ?? null,
-      adminPhone: updatedAdmin?.phone ?? null,
-      adminEmail: updatedAdmin?.email ?? null,
-      adminCity: updatedAdmin?.city ?? null,
+      adminName: updatedAdmin?.fullName ?? updatedRequest.fullName ?? null,
+
+      adminPhone: updatedAdmin?.phone ?? updatedRequest.phone ?? null,
+
+      adminEmail: updatedAdmin?.email ?? updatedRequest.email ?? null,
+
+      adminCity: updatedAdmin?.city ?? updatedRequest.city ?? null,
     },
   });
 
-  if (statusChanged) {
+  /* ---------------------------------------------------------------------- */
+  /* Notifications                                                         */
+  /* ---------------------------------------------------------------------- */
+
+  /*
+   * A request without an Admin cannot receive an Admin notification.
+   *
+   * This is expected for the first Admin request.
+   */
+
+  if (statusChanged && updatedRequest.adminId) {
     switch (updatedRequest.status) {
       case "IN_PROGRESS":
         await notifyAdminRequestInProgress(
@@ -631,16 +686,17 @@ export async function findAdminForRequest({
   phone,
   email,
 }: {
-  adminId?: string;
-  name?: string;
-  phone?: string;
-  email?: string;
+  adminId?: string | null;
+  name?: string | null;
+  phone?: string | null;
+  email?: string | null;
 }) {
-  if (adminId) {
-    return getAdminById(adminId);
+  // 1. If adminId is provided, use it directly
+  if (adminId?.trim()) {
+    return getAdminById(adminId.trim());
   }
 
-  // 1. Prefer exact email match
+  // 2. Prefer exact email match
   if (email?.trim()) {
     const result = await db
       .select({
@@ -659,7 +715,7 @@ export async function findAdminForRequest({
     }
   }
 
-  // 2. Then exact phone match
+  // 3. Then exact phone match
   if (phone?.trim()) {
     const result = await db
       .select({
@@ -678,7 +734,7 @@ export async function findAdminForRequest({
     }
   }
 
-  // 3. Finally name match
+  // 4. Finally name match
   if (name?.trim()) {
     const result = await db
       .select({
