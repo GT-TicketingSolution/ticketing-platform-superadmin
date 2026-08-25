@@ -68,7 +68,7 @@ const inputStyle = (hasError: boolean): React.CSSProperties => ({
   transition: "border-color 0.18s",
 });
 
-// ─── Permission-based module roles (Excludes default modules) 
+// ─── Permission-based module roles (Excludes default modules)
 const ALL_ROLES: string[] = [
   "Complimentary Management",
   "Customer Management",
@@ -89,7 +89,6 @@ const DEFAULT_MODULE_NAMES = [
   "reports",
   "settings",
 ];
-
 
 // ─── Date calculation helpers ───────────────────────────────────────────────
 const getTodayDateStr = () => new Date().toISOString().slice(0, 10);

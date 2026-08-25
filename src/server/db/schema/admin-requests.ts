@@ -1,3 +1,66 @@
+// import {
+//   pgEnum,
+//   pgTable,
+//   uuid,
+//   varchar,
+//   text,
+//   timestamp,
+//   index,
+//   uniqueIndex,
+// } from "drizzle-orm/pg-core";
+
+// import { admins } from "./admins";
+
+// export const adminRequestStatusEnum = pgEnum("admin_request_status", [
+//   "PENDING",
+//   "IN_PROGRESS",
+//   "ACCEPTED",
+//   "REJECTED",
+//   "CANCELLED",
+// ]);
+
+// export const adminRequests = pgTable(
+//   "admin_requests",
+//   {
+//     id: uuid("id").defaultRandom().primaryKey(),
+
+//     requestNumber: varchar("request_number", {
+//       length: 50,
+//     }).notNull(),
+
+//     adminId: uuid("admin_id")
+//       .notNull()
+//       .references(() => admins.id, {
+//         onDelete: "cascade",
+//       }),
+
+//     description: text("description").notNull(),
+
+//     internalNotes: text("internal_notes"),
+
+//     status: adminRequestStatusEnum("status").default("PENDING").notNull(),
+
+//     createdAt: timestamp("created_at", {
+//       withTimezone: true,
+//     })
+//       .defaultNow()
+//       .notNull(),
+
+//     updatedAt: timestamp("updated_at", {
+//       withTimezone: true,
+//     })
+//       .defaultNow()
+//       .notNull(),
+//   },
+
+//   (table) => [
+//     uniqueIndex("admin_requests_number_unique").on(table.requestNumber),
+
+//     index("admin_requests_admin_id_idx").on(table.adminId),
+
+//     index("admin_requests_status_idx").on(table.status),
+//   ],
+// );
 import {
   pgEnum,
   pgTable,
@@ -28,11 +91,34 @@ export const adminRequests = pgTable(
       length: 50,
     }).notNull(),
 
-    adminId: uuid("admin_id")
-      .notNull()
-      .references(() => admins.id, {
-        onDelete: "cascade",
-      }),
+    /*
+     * Nullable because the first Admin request can exist
+     * before an Admin record has been created.
+     */
+    adminId: uuid("admin_id").references(() => admins.id, {
+      onDelete: "set null",
+    }),
+
+    /*
+     * Proposed Admin details.
+     * These are required for a first Admin request,
+     * where adminId is NULL.
+     */
+    fullName: varchar("full_name", {
+      length: 150,
+    }),
+
+    phone: varchar("phone", {
+      length: 20,
+    }),
+
+    email: varchar("email", {
+      length: 255,
+    }),
+
+    city: varchar("city", {
+      length: 100,
+    }),
 
     description: text("description").notNull(),
 
