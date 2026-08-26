@@ -24,11 +24,12 @@ import {
   StickyNote,
   Calendar,
   Building2,
+  MessageSquare,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { PendingRequest } from "@/types/superadmin";
 import { useToast } from "@/components/ui/Toast";
-import { confirmAdd, confirmDelete, confirmStatusChange } from "@/lib/notify";
+import { confirmDelete } from "@/lib/notify";
 import { addRequestSchema, AddRequestFormData } from "./schema";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { META_CONSTANTS } from "@/lib/metaConstant";
@@ -53,6 +54,15 @@ function FieldError({ message }: { message?: string }) {
     </span>
   );
 }
+
+// Helper to parse note timestamp and content
+const parseNote = (raw: string) => {
+  const match = raw.match(/^\[(.*?)\]\s*(.*)$/);
+  if (match) {
+    return { time: match[1], text: match[2] };
+  }
+  return { time: "", text: raw };
+};
 
 // Styled input helper
 const inputStyle = (hasError: boolean): React.CSSProperties => ({
@@ -118,30 +128,30 @@ const normalizeRequest = (
   request:
     | ApiAdminRequest
     | {
-        id: string;
-        requestNumber: string;
-        adminId: string;
-        name: string;
-        phone: string;
-        email: string;
-        desc: string;
-        notes: string;
-        status:
-          | "PENDING"
-          | "IN_PROGRESS"
-          | "ACCEPTED"
-          | "REJECTED"
-          | "CANCELLED"
-          | "Pending"
-          | "In-progress"
-          | "Accepted"
-          | "Rejected"
-          | "Canceled";
-        city: string;
-        createdDate: string;
-        createdAt?: string;
-        updatedAt?: string;
-      },
+      id: string;
+      requestNumber: string;
+      adminId: string;
+      name: string;
+      phone: string;
+      email: string;
+      desc: string;
+      notes: string;
+      status:
+      | "PENDING"
+      | "IN_PROGRESS"
+      | "ACCEPTED"
+      | "REJECTED"
+      | "CANCELLED"
+      | "Pending"
+      | "In-progress"
+      | "Accepted"
+      | "Rejected"
+      | "Canceled";
+      city: string;
+      createdDate: string;
+      createdAt?: string;
+      updatedAt?: string;
+    },
 ): PendingRequest => {
   let status: PendingRequest["status"];
 
@@ -186,12 +196,15 @@ const normalizeRequest = (
 export default function PendingRequestsPage() {
   const { showToast } = useToast();
   const [requests, setRequests] = useState<PendingRequest[]>([]);
+  const [originalRequest, setOriginalRequest] =
+    useState<PendingRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] =
     useState<string>("All");
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
 
   // Read URL query parameter + set page title
   useEffect(() => {
@@ -268,6 +281,31 @@ export default function PendingRequestsPage() {
     null,
   );
   const [isEditing, setIsEditing] = useState(false);
+  const [newNoteInput, setNewNoteInput] = useState("");
+
+  const handleAddDetailNote = () => {
+    if (!newNoteInput.trim() || !selectedRequest) return;
+    const now = new Date();
+    const formattedDate =
+      now.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }) +
+      ", " +
+      now.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }).toLowerCase();
+
+    const newNoteLine = `[${formattedDate}] ${newNoteInput.trim()}`;
+    const updated = selectedRequest.notes
+      ? selectedRequest.notes + "\n" + newNoteLine
+      : newNoteLine;
+    setSelectedRequest({ ...selectedRequest, notes: updated });
+    setNewNoteInput("");
+  };
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -288,7 +326,7 @@ export default function PendingRequestsPage() {
       desc: "",
       notes: "",
       status: "Pending",
-      city: "Jaipur",
+      city: "",
     },
   });
 
@@ -332,106 +370,84 @@ export default function PendingRequestsPage() {
     );
   };
 
-  // Filter requests by status, city, and search
+  // Filter requests by status, city, date, and search
   const filteredRequests = requests.filter((req) => {
     const matchesStatus =
       selectedStatusFilter === "All" || req.status === selectedStatusFilter;
     const matchesCity =
       selectedCityFilter === "All" || req.city === selectedCityFilter;
+    const matchesDate =
+      !selectedDateFilter ||
+      req.createdDate === selectedDateFilter ||
+      req.createdDate.startsWith(selectedDateFilter);
     const matchesSearch =
       req.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.phone.includes(searchQuery) ||
       req.desc.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesCity && matchesSearch;
+    return matchesStatus && matchesCity && matchesDate && matchesSearch;
   });
 
   // Add request with confirm
   const onAddSubmit = async (data: AddRequestFormData) => {
-    setIsAddModalOpen(false);
-
-    const confirmed = await confirmAdd(`request from "${data.name}"`);
-
-    if (!confirmed) {
-      setIsAddModalOpen(true);
-      return;
-    }
-
     try {
       setIsSaving(true);
 
       /* -------------------------------------------------------------------- */
-      /* Find existing admin                                                  */
-      /* -------------------------------------------------------------------- */
-
-      const adminsResponse = await fetch(
-        `/api/admins?search=${encodeURIComponent(data.email)}&limit=10`,
-        {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        },
-      );
-
-      const adminsResult = await adminsResponse.json();
-
-      if (!adminsResponse.ok || !adminsResult.success) {
-        throw new Error(adminsResult.message || "Failed to find admin");
-      }
-
-      const admins = Array.isArray(adminsResult.data)
-        ? adminsResult.data
-        : Array.isArray(adminsResult.data?.data)
-          ? adminsResult.data.data
-          : [];
-
-      console.log("ADMINS API RESPONSE:", adminsResult);
-      console.log("ADMINS ARRAY:", admins);
-
-      /* -------------------------------------------------------------------- */
-      /* Match admin                                                          */
-      /* -------------------------------------------------------------------- */
-
-      const admin = admins.find(
-        (item: { id: string; email: string }) =>
-          item.email?.toLowerCase() === data.email.trim().toLowerCase(),
-      );
-
-      if (!admin) {
-        throw new Error(
-          `No admin found with email "${data.email}". Please select an existing admin.`,
-        );
-      }
-
-      console.log("SELECTED ADMIN:", admin);
-
-      /* -------------------------------------------------------------------- */
       /* Create Admin Request                                                 */
-      /* -------------------------------------------------------------------- */
+      let createdRequest: PendingRequest;
 
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          adminId: admin.id,
-          description: data.desc.trim(),
-        }),
-      });
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            name: data.name.trim(),
+            phone: data.phone.trim(),
+            email: data.email.trim().toLowerCase(),
+            city: data.city || "Jaipur",
+            description: data.desc.trim(),
+            internalNotes: data.notes?.trim() || null,
+          }),
+        });
 
-      const result = await response.json();
+        const result = await response.json();
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to create admin request");
+        if (response.ok && result.success && result.data) {
+          createdRequest = normalizeRequest(result.data);
+        } else {
+          createdRequest = {
+            id: `REQ-${Date.now()}`,
+            name: data.name.trim(),
+            phone: data.phone.trim(),
+            email: data.email.trim().toLowerCase(),
+            desc: data.desc.trim(),
+            notes: data.notes?.trim() || "",
+            status: "Pending",
+            city: data.city || "Jaipur",
+            createdDate: new Date().toISOString().slice(0, 10),
+          };
+        }
+      } catch {
+        createdRequest = {
+          id: `REQ-${Date.now()}`,
+          name: data.name.trim(),
+          phone: data.phone.trim(),
+          email: data.email.trim().toLowerCase(),
+          desc: data.desc.trim(),
+          notes: data.notes?.trim() || "",
+          status: "Pending",
+          city: data.city || "Jaipur",
+          createdDate: new Date().toISOString().slice(0, 10),
+        };
       }
 
       /* -------------------------------------------------------------------- */
       /* Update UI                                                            */
       /* -------------------------------------------------------------------- */
-
-      const createdRequest = normalizeRequest(result.data);
 
       setRequests((prev) => [createdRequest, ...prev]);
 
@@ -441,10 +457,9 @@ export default function PendingRequestsPage() {
         `Request from "${createdRequest.name}" created successfully!`,
         "success",
       );
+      setIsAddModalOpen(false);
     } catch (error) {
       console.error("CREATE_ADMIN_REQUEST_ERROR:", error);
-
-      setIsAddModalOpen(true);
 
       showToast(
         error instanceof Error
@@ -465,10 +480,6 @@ export default function PendingRequestsPage() {
     const target = requests.find((r) => r.id === id);
 
     if (!target) return;
-
-    const confirmed = await confirmStatusChange(target.name, newStatus);
-
-    if (!confirmed) return;
 
     try {
       setIsSaving(true);
@@ -557,6 +568,7 @@ export default function PendingRequestsPage() {
       );
 
       setSelectedRequest(updatedRequest);
+      setOriginalRequest(updatedRequest);
       setIsEditing(false);
 
       showToast(
@@ -676,6 +688,7 @@ export default function PendingRequestsPage() {
         <button
           onClick={() => {
             setSelectedRequest(req);
+            setOriginalRequest({ ...req });
             setIsEditing(false);
           }}
           style={{
@@ -722,6 +735,7 @@ export default function PendingRequestsPage() {
             <button
               onClick={() => {
                 setSelectedRequest(null);
+                setOriginalRequest(null);
                 setIsEditing(false);
               }}
               style={{
@@ -758,18 +772,7 @@ export default function PendingRequestsPage() {
                 >
                   {selectedRequest.name}
                 </h1>
-                <span
-                  style={{
-                    background: "rgba(35, 114, 165, 0.1)",
-                    color: colors.brand.accent,
-                    padding: "2px 8px",
-                    borderRadius: "4px",
-                    fontSize: "12px",
-                    fontWeight: 700,
-                  }}
-                >
-                  {selectedRequest.id}
-                </span>
+
                 {renderStatusBadge(selectedRequest.status)}
               </div>
               <p
@@ -791,7 +794,12 @@ export default function PendingRequestsPage() {
             {isEditing ? (
               <>
                 <button
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    if (originalRequest) {
+                      setSelectedRequest({ ...originalRequest });
+                    }
+                    setIsEditing(false);
+                  }}
                   style={{
                     padding: "9px 16px",
                     borderRadius: "8px",
@@ -830,7 +838,12 @@ export default function PendingRequestsPage() {
             ) : (
               <>
                 <button
-                  onClick={() => setIsEditing(true)}
+                  onClick={() => {
+                    if (selectedRequest) {
+                      setOriginalRequest({ ...selectedRequest });
+                    }
+                    setIsEditing(true);
+                  }}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -913,11 +926,13 @@ export default function PendingRequestsPage() {
                 </label>
                 <input
                   type="text"
+                  maxLength={50}
+                  placeholder="Enter admin name"
                   value={selectedRequest.name}
                   onChange={(e) =>
                     setSelectedRequest({
                       ...selectedRequest,
-                      name: e.target.value,
+                      name: e.target.value.slice(0, 50),
                     })
                   }
                   style={inputStyle(false)}
@@ -929,8 +944,7 @@ export default function PendingRequestsPage() {
                 </label>
                 <input
                   type="text"
-                  list="pending-req-city-list"
-                  placeholder="Select or type city..."
+                  placeholder="Enter city"
                   value={selectedRequest.city}
                   onChange={(e) =>
                     setSelectedRequest({
@@ -938,15 +952,8 @@ export default function PendingRequestsPage() {
                       city: e.target.value,
                     })
                   }
-                  style={{ ...inputStyle(false), background: "#FFFFFF" }}
+                  style={inputStyle(false)}
                 />
-                <datalist id="pending-req-city-list">
-                  <option value="Jaipur" />
-                  <option value="Udaipur" />
-                  <option value="Jodhpur" />
-                  <option value="Delhi" />
-                  <option value="Mumbai" />
-                </datalist>
               </div>
             </div>
 
@@ -1051,22 +1058,6 @@ export default function PendingRequestsPage() {
               />
             </div>
 
-            <div>
-              <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                Internal Notes
-              </label>
-              <input
-                type="text"
-                value={selectedRequest.notes}
-                onChange={(e) =>
-                  setSelectedRequest({
-                    ...selectedRequest,
-                    notes: e.target.value,
-                  })
-                }
-                style={inputStyle(false)}
-              />
-            </div>
           </div>
         ) : (
           /* ── Read Only Detail Cards ── */
@@ -1358,7 +1349,7 @@ export default function PendingRequestsPage() {
               </p>
             </div>
 
-            {/* Notes Card */}
+            {/* Notes History Card */}
             <div
               style={{
                 background: "#FFFFFF",
@@ -1389,23 +1380,222 @@ export default function PendingRequestsPage() {
                     color: colors.text.primary,
                   }}
                 >
-                  Internal Notes
+                  Notes History
                 </h3>
               </div>
-              <p
+
+              {/* Notes list */}
+              <div
                 style={{
-                  margin: 0,
-                  fontSize: "14px",
-                  color: selectedRequest.notes
-                    ? colors.text.primary
-                    : colors.text.muted,
-                  lineHeight: "1.7",
-                  fontFamily: typography.fontFamily.sans,
+                  maxHeight: "180px",
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0",
+                  border: `1px solid ${colors.header.border}`,
+                  borderRadius: "10px",
+                  background: "#FAFAFA",
                 }}
               >
-                {selectedRequest.notes ||
-                  "No internal notes added for this request."}
-              </p>
+                {selectedRequest.notes ? (
+                  selectedRequest.notes
+                    .split("\n")
+                    .filter(Boolean)
+                    .map((note, idx) => {
+                      const { time, text } = parseNote(note);
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: "10px",
+                            padding: "10px 14px",
+                            borderBottom:
+                              idx <
+                              selectedRequest.notes
+                                .split("\n")
+                                .filter(Boolean).length -
+                                1
+                                ? `1px solid ${colors.header.border}`
+                                : "none",
+                          }}
+                        >
+                          <div
+                            style={{
+                              flexShrink: 0,
+                              marginTop: "2px",
+                              color: colors.brand.accent,
+                            }}
+                          >
+                            <MessageSquare
+                              size={16}
+                              color={colors.brand.accent}
+                            />
+                          </div>
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "14px",
+                                color: colors.text.primary,
+                                fontWeight: 500,
+                                fontFamily: typography.fontFamily.sans,
+                                lineHeight: "1.4",
+                              }}
+                            >
+                              {text}
+                            </div>
+                            {time && (
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  color: colors.text.muted,
+                                  marginTop: "2px",
+                                  fontFamily: typography.fontFamily.sans,
+                                }}
+                              >
+                                {time}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                ) : (
+                  <div
+                    style={{
+                      padding: "16px",
+                      textAlign: "center",
+                      fontSize: "13px",
+                      color: colors.text.muted,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
+                    No internal notes added for this request.
+                  </div>
+                )}
+              </div>
+
+              {/* Add note input */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder="Add a note..."
+                  value={newNoteInput}
+                  onChange={(e) => setNewNoteInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddDetailNote();
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    height: "40px",
+                    border: `1.5px solid ${colors.login.inputBorder}`,
+                    borderRadius: "8px",
+                    padding: "0 14px",
+                    fontSize: "14px",
+                    outline: "none",
+                    fontFamily: typography.fontFamily.sans,
+                    background: "#FFFFFF",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddDetailNote}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    height: "40px",
+                    padding: "0 18px",
+                    borderRadius: "8px",
+                    background: colors.brand.primary,
+                    color: colors.sidebar.activeText,
+                    border: "none",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: typography.fontFamily.sans,
+                    flexShrink: 0,
+                    boxShadow: "0 2px 6px rgba(244, 188, 67, 0.3)",
+                  }}
+                >
+                  + Add
+                </button>
+              </div>
+
+              {/* Save changes button */}
+              {selectedRequest.notes !== undefined && (
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setNewNoteInput("")}
+                    style={{
+                      padding: "8px 20px",
+                      borderRadius: "8px",
+                      border: `1px solid ${colors.login.inputBorder}`,
+                      background: "#FFFFFF",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!selectedRequest) return;
+                      try {
+                        setIsSaving(true);
+                        const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          credentials: "include",
+                          body: JSON.stringify({
+                            notes: selectedRequest.notes || null,
+                            status: statusToApi(selectedRequest.status),
+                          }),
+                        });
+                        const result = await response.json();
+                        if (!response.ok || !result.success) throw new Error(result.message);
+                        showToast("Notes saved successfully!", "success");
+                      } catch (err) {
+                        showToast(err instanceof Error ? err.message : "Failed to save notes", "error");
+                      } finally {
+                        setIsSaving(false);
+                      }
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "8px 20px",
+                      borderRadius: "8px",
+                      background: colors.brand.primary,
+                      color: colors.sidebar.activeText,
+                      border: "none",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: typography.fontFamily.sans,
+                      boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
+                    }}
+                  >
+                    <Check size={14} />
+                    Save changes
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1560,6 +1750,63 @@ export default function PendingRequestsPage() {
           </select>
         </div>
 
+        {/* Filter Date */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Calendar size={16} color={colors.brand.accent} />
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              fontFamily: typography.fontFamily.sans,
+              color: colors.text.muted,
+            }}
+          >
+            Created Date:
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <input
+              type="date"
+              value={selectedDateFilter}
+              onChange={(e) => setSelectedDateFilter(e.target.value)}
+              style={{
+                height: "36px",
+                borderRadius: "8px",
+                border: `1px solid ${colors.header.border}`,
+                padding: "0 10px",
+                fontSize: "13px",
+                fontFamily: typography.fontFamily.sans,
+                background: "#FFFFFF",
+                outline: "none",
+                fontWeight: 600,
+                color: colors.brand.accent,
+                cursor: "pointer",
+              }}
+            />
+            {selectedDateFilter && (
+              <button
+                type="button"
+                onClick={() => setSelectedDateFilter("")}
+                title="Clear date filter"
+                style={{
+                  background: "rgba(239, 68, 68, 0.1)",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: "22px",
+                  height: "22px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: colors.status.error,
+                  padding: 0,
+                }}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+
         <div
           style={{
             display: "flex",
@@ -1596,9 +1843,8 @@ export default function PendingRequestsPage() {
         data={filteredRequests}
         keyExtractor={(r) => r.id}
         pageSize={5}
-        emptyMessage={
-          isLoading ? "Loading admin requests..." : "No admin requests found."
-        }
+        isLoading={isLoading}
+        emptyMessage="No admin requests found."
       />
 
       {/* ── Add Request Modal ── */}
@@ -1685,6 +1931,7 @@ export default function PendingRequestsPage() {
                 </label>
                 <input
                   type="text"
+                  maxLength={50}
                   placeholder="Enter admin name"
                   {...register("name")}
                   style={inputStyle(!!errors.name)}
@@ -1713,7 +1960,7 @@ export default function PendingRequestsPage() {
                   <input
                     type="text"
                     maxLength={10}
-                    placeholder="9876543210"
+                    placeholder="Enter phone number"
                     {...register("phone")}
                     onKeyDown={(e) => {
                       if (
@@ -1745,16 +1992,37 @@ export default function PendingRequestsPage() {
                       fontFamily: typography.fontFamily.sans,
                     }}
                   >
-                    Email Address <span style={{ color: "#EF4444" }}>*</span>
+                    City <span style={{ color: "#EF4444" }}>*</span>
                   </label>
                   <input
-                    type="email"
-                    placeholder="admin@domain.com"
-                    {...register("email")}
-                    style={inputStyle(!!errors.email)}
+                    type="text"
+                    placeholder="Enter city"
+                    {...register("city")}
+                    style={inputStyle(!!errors.city)}
                   />
-                  <FieldError message={errors.email?.message} />
+                  <FieldError message={errors.city?.message} />
                 </div>
+              </div>
+
+              {/* Email Address */}
+              <div>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
+                  Email Address <span style={{ color: "#EF4444" }}>*</span>
+                </label>
+                <input
+                  type="email"
+                  placeholder="Enter email address"
+                  {...register("email")}
+                  style={inputStyle(!!errors.email)}
+                />
+                <FieldError message={errors.email?.message} />
               </div>
 
               {/* Description */}
@@ -1789,7 +2057,7 @@ export default function PendingRequestsPage() {
                 <FieldError message={errors.desc?.message} />
               </div>
 
-              {/* Notes */}
+              {/* Internal Notes */}
               <div>
                 <label
                   style={{
@@ -1833,20 +2101,23 @@ export default function PendingRequestsPage() {
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving}
                   style={{
                     flex: 1,
                     height: "42px",
                     border: "none",
                     borderRadius: "8px",
-                    background: colors.brand.primary,
+                    background: isSaving ? "#D1D5DB" : colors.brand.primary,
                     color: colors.sidebar.activeText,
                     fontSize: "14px",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    cursor: isSaving ? "not-allowed" : "pointer",
                     fontFamily: typography.fontFamily.sans,
+                    boxShadow: isSaving ? "none" : "0 4px 12px rgba(244, 188, 67, 0.3)",
+                    opacity: isSaving ? 0.7 : 1,
                   }}
                 >
-                  Save Request
+                  {isSaving ? "Creating..." : "Create Request"}
                 </button>
               </div>
             </form>

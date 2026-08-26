@@ -27,7 +27,7 @@ import {
 import { colors, typography } from "@/lib/theme";
 import { AdminUser } from "@/types/superadmin";
 import { useToast } from "@/components/ui/Toast";
-import { confirmDelete, confirmAdd } from "@/lib/notify";
+import { confirmDelete } from "@/lib/notify";
 import { addAdminSchema, AddAdminFormData } from "./schema";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { META_CONSTANTS } from "@/lib/metaConstant";
@@ -72,7 +72,6 @@ const inputStyle = (hasError: boolean): React.CSSProperties => ({
 const ALL_ROLES: string[] = [
   "Complimentary Management",
   "Customer Management",
-  "Seat Management",
   "CCTV Monitoring",
 ];
 
@@ -80,6 +79,7 @@ const DEFAULT_MODULE_NAMES = [
   "manager management",
   "staff management",
   "attraction management",
+  "seat management",
   "bookings",
   "transactions",
   "invoices",
@@ -148,11 +148,12 @@ const getRenewalHistory = (
   return history;
 };
 
-// ─── Admin API helpers ───────────────────────────────────────────────────────
+// ─── Admin API helpers
 
 type ApiAdmin = {
   id: string;
   fullName: string;
+  businessName?: string | null;
   phone: string;
   email: string;
   city: string;
@@ -175,6 +176,7 @@ const mapApiAdminToAdminUser = (admin: ApiAdmin): AdminUser => {
   return {
     id: admin.id,
     name: admin.fullName,
+    businessName: admin.businessName || "",
     phone: admin.phone,
     email: admin.email,
     city: admin.city,
@@ -222,7 +224,9 @@ export default function AdminPage() {
   // Modals / View state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedAdmin, setSelectedAdmin] = useState<AdminUser | null>(null);
+  const [originalAdmin, setOriginalAdmin] = useState<AdminUser | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
 
   // ─── Fetch Admins ─────────────────────────────────────────────────────────────
 
@@ -383,14 +387,19 @@ export default function AdminPage() {
     formState: { errors },
   } = useForm<AddAdminFormData>({
     resolver: zodResolver(addAdminSchema),
+    mode: "onChange",
     defaultValues: {
       name: "",
+      businessName: "",
       phone: "",
       email: "",
-      city: "Jaipur",
+      city: "",
       subDomain: "",
-      renewalAmount: 50000,
+      renewalAmount: undefined as unknown as number,
       rolesAccess: [],
+      joinedDate: getTodayDateStr(),
+      nextRenewalDate: calculateNextRenewalDate(getTodayDateStr()),
+      status: "Active",
     },
   });
 
@@ -401,33 +410,42 @@ export default function AdminPage() {
     defaultValue: [],
   });
 
-  // Filtered Admins by search and city
+  const watchedJoinedDate = useWatch({
+    control,
+    name: "joinedDate",
+    defaultValue: getTodayDateStr(),
+  });
+
+  const watchedStatus = useWatch({
+    control,
+    name: "status",
+    defaultValue: "Active",
+  });
+
+  // Filtered Admins by search, city, and date
   const filteredAdmins = admins.filter((a) => {
     const matchesCity =
       selectedCityFilter === "All" || a.city === selectedCityFilter;
+    const matchesDate =
+      !selectedDateFilter || a.joinedDate === selectedDateFilter;
     const matchesSearch =
       a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.phone.includes(searchQuery) ||
       a.subDomain.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCity && matchesSearch;
+    return matchesCity && matchesDate && matchesSearch;
   });
 
   // ── Handle Add Admin ─────────────────────────────────────────────────────────
 
   const onAddSubmit = async (data: AddAdminFormData) => {
-    setIsAddModalOpen(false);
-
-    const confirmed = await confirmAdd(`admin "${data.name}"`);
-
-    if (!confirmed) {
-      setIsAddModalOpen(true);
-      return;
-    }
-
     const joined = data.joinedDate || getTodayDateStr();
     const nextRenewal =
       data.nextRenewalDate || calculateNextRenewalDate(joined);
+
+    const formattedSubdomain = data.subDomain?.trim() || "";
+
+    const statusApi = data.status === "Inactive" ? "INACTIVE" : "ACTIVE";
 
     try {
       setIsSaving(true);
@@ -439,16 +457,15 @@ export default function AdminPage() {
         },
         body: JSON.stringify({
           fullName: data.name.trim(),
+          businessName: data.businessName.trim(),
           phone: data.phone.trim(),
           email: data.email.trim().toLowerCase(),
           city: data.city.trim(),
-          subdomain:
-            data.subDomain?.trim() ||
-            `${data.name.toLowerCase().replace(/\s+/g, "")}.ticketing.com`,
+          subdomain: formattedSubdomain,
           renewalAmount: String(data.renewalAmount),
           joinedAt: joined,
           nextRenewalDate: nextRenewal,
-          status: "ACTIVE",
+          status: statusApi,
         }),
       });
 
@@ -496,10 +513,9 @@ export default function AdminPage() {
       reset();
 
       showToast(`Admin "${createdAdmin.name}" added successfully!`, "success");
+      setIsAddModalOpen(false);
     } catch (error) {
       console.error("CREATE_ADMIN_ERROR:", error);
-
-      setIsAddModalOpen(true);
 
       showToast(
         error instanceof Error ? error.message : "Failed to create admin",
@@ -563,6 +579,7 @@ export default function AdminPage() {
       );
 
       setSelectedAdmin(updatedAdmin);
+      setOriginalAdmin(updatedAdmin);
       setIsEditing(false);
 
       showToast(
@@ -764,11 +781,13 @@ export default function AdminPage() {
 
               // 4. Set admin + assigned roles
               const mappedAdmin = mapApiAdminToAdminUser(adminResult.data);
-
-              setSelectedAdmin({
+              const fullAdmin = {
                 ...mappedAdmin,
                 rolesAccess,
-              });
+              };
+
+              setSelectedAdmin(fullAdmin);
+              setOriginalAdmin(fullAdmin);
             } catch (error) {
               console.error("GET_ADMIN_ERROR:", error);
 
@@ -832,6 +851,7 @@ export default function AdminPage() {
             <button
               onClick={() => {
                 setSelectedAdmin(null);
+                setOriginalAdmin(null);
                 setIsEditing(false);
               }}
               style={{
@@ -868,22 +888,17 @@ export default function AdminPage() {
                 >
                   {selectedAdmin.name}
                 </h1>
+
                 <span
                   style={{
-                    background: "rgba(35, 114, 165, 0.1)",
-                    color: colors.brand.accent,
-                    padding: "2px 8px",
-                    borderRadius: "4px",
-                    fontSize: "12px",
-                    fontWeight: 700,
-                  }}
-                >
-                  {selectedAdmin.id}
-                </span>
-                <span
-                  style={{
-                    background: "rgba(34, 197, 94, 0.12)",
-                    color: colors.status.success,
+                    background:
+                      selectedAdmin.status === "Active"
+                        ? "rgba(34, 197, 94, 0.12)"
+                        : "rgba(239, 68, 68, 0.12)",
+                    color:
+                      selectedAdmin.status === "Active"
+                        ? colors.status.success
+                        : colors.status.error,
                     padding: "2px 10px",
                     borderRadius: "12px",
                     fontSize: "12px",
@@ -911,7 +926,13 @@ export default function AdminPage() {
             {isEditing ? (
               <>
                 <button
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    if (originalAdmin) {
+                      setSelectedAdmin({ ...originalAdmin });
+                    }
+                    setSelectedModules([...originalModules]);
+                    setIsEditing(false);
+                  }}
                   style={{
                     padding: "9px 16px",
                     borderRadius: "8px",
@@ -944,18 +965,18 @@ export default function AdminPage() {
                     boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
                   }}
                 >
-                  {isSaving ? "Creating..." : "Create Admin"}
+                  {isSaving ? "Saving..." : "Save Changes"}
                 </button>
               </>
             ) : (
               <>
                 <button
                   onClick={async () => {
-                    setIsEditing(true);
-
                     if (selectedAdmin) {
+                      setOriginalAdmin({ ...selectedAdmin });
                       await fetchAdminModules(selectedAdmin.id);
                     }
+                    setIsEditing(true);
                   }}
                   style={{
                     display: "inline-flex",
@@ -1035,38 +1056,37 @@ export default function AdminPage() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Full Name
+                  Full Name{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
+                  maxLength={50}
+                  placeholder="Enter full name"
                   value={selectedAdmin.name}
                   onChange={(e) =>
-                    setSelectedAdmin({ ...selectedAdmin, name: e.target.value })
+                    setSelectedAdmin({
+                      ...selectedAdmin,
+                      name: e.target.value.slice(0, 50),
+                    })
                   }
                   style={inputStyle(false)}
                 />
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  City
+                  City{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
-                  list="admin-city-list"
-                  placeholder="Select or type city..."
+                  placeholder="Enter city"
                   value={selectedAdmin.city}
                   onChange={(e) =>
                     setSelectedAdmin({ ...selectedAdmin, city: e.target.value })
                   }
-                  style={{ ...inputStyle(false), background: "#FFFFFF" }}
+                  style={inputStyle(false)}
                 />
-                <datalist id="admin-city-list">
-                  <option value="Jaipur" />
-                  <option value="Udaipur" />
-                  <option value="Jodhpur" />
-                  <option value="Delhi" />
-                  <option value="Mumbai" />
-                </datalist>
               </div>
             </div>
 
@@ -1079,11 +1099,13 @@ export default function AdminPage() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Phone Number
+                  Phone Number{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
                   maxLength={10}
+                  placeholder="Enter phone number"
                   value={selectedAdmin.phone}
                   onKeyDown={(e) => {
                     if (
@@ -1106,10 +1128,12 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Email Address
+                  Email Address{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="email"
+                  placeholder="Enter email address"
                   value={selectedAdmin.email}
                   onChange={(e) =>
                     setSelectedAdmin({
@@ -1135,6 +1159,7 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="text"
+                  placeholder="domain.ticketingsolution.in"
                   value={selectedAdmin.subDomain}
                   onChange={(e) =>
                     setSelectedAdmin({
@@ -1147,11 +1172,13 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Renewal Amount (₹)
+                  Renewal Amount (₹){" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
-                  value={selectedAdmin.renewalAmount}
+                  placeholder="Enter renewal amount"
+                  value={selectedAdmin.renewalAmount || ""}
                   onChange={(e) =>
                     setSelectedAdmin({
                       ...selectedAdmin,
@@ -1182,11 +1209,16 @@ export default function AdminPage() {
                   onChange={(e) => {
                     const newJoined = e.target.value;
                     const autoNextRenewal = calculateNextRenewalDate(newJoined);
+                    // If current nextRenewalDate is before the new joinedDate, reset it
+                    const currentNext = selectedAdmin.nextRenewalDate;
+                    const clampedNext =
+                      currentNext && currentNext >= newJoined
+                        ? currentNext
+                        : autoNextRenewal || newJoined;
                     setSelectedAdmin({
                       ...selectedAdmin,
                       joinedDate: newJoined,
-                      nextRenewalDate:
-                        autoNextRenewal || selectedAdmin.nextRenewalDate,
+                      nextRenewalDate: clampedNext,
                     });
                   }}
                   style={inputStyle(false)}
@@ -1199,6 +1231,7 @@ export default function AdminPage() {
                 <input
                   type="date"
                   value={selectedAdmin.nextRenewalDate || ""}
+                  min={selectedAdmin.joinedDate || ""}
                   onChange={(e) =>
                     setSelectedAdmin({
                       ...selectedAdmin,
@@ -1207,6 +1240,71 @@ export default function AdminPage() {
                   }
                   style={inputStyle(false)}
                 />
+              </div>
+            </div>
+
+            {/* Status Toggle */}
+            <div>
+              <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                Status
+              </label>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  marginTop: "8px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedAdmin({
+                      ...selectedAdmin,
+                      status: selectedAdmin.status === "Active" ? "Inactive" : "Active",
+                    })
+                  }
+                  style={{
+                    position: "relative",
+                    width: "48px",
+                    height: "26px",
+                    borderRadius: "13px",
+                    border: "none",
+                    background:
+                      selectedAdmin.status === "Active" ? "#22C55E" : "#D1D5DB",
+                    cursor: "pointer",
+                    transition: "background 0.2s",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "3px",
+                      left:
+                        selectedAdmin.status === "Active" ? "25px" : "3px",
+                      width: "20px",
+                      height: "20px",
+                      borderRadius: "50%",
+                      background: "#FFFFFF",
+                      boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+                      transition: "left 0.2s",
+                    }}
+                  />
+                </button>
+                <span
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color:
+                      selectedAdmin.status === "Active"
+                        ? "#22C55E"
+                        : colors.text.muted,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
+                  {selectedAdmin.status === "Active" ? "Active" : "Inactive"}
+                </span>
               </div>
             </div>
 
@@ -1254,7 +1352,9 @@ export default function AdminPage() {
                     type="checkbox"
                     checked={
                       availableModules.length > 0 &&
-                      selectedModules.length === availableModules.length
+                      availableModules.every((m) =>
+                        selectedModules.includes(m.id),
+                      )
                     }
                     onChange={(e) => {
                       setSelectedModules(
@@ -1492,7 +1592,10 @@ export default function AdminPage() {
                       style={{
                         fontSize: "13px",
                         fontWeight: 700,
-                        color: colors.status.success,
+                        color:
+                          selectedAdmin.status === "Active"
+                            ? colors.status.success
+                            : colors.status.error,
                       }}
                     >
                       {selectedAdmin.status}
@@ -1873,7 +1976,7 @@ export default function AdminPage() {
           gap: "16px",
         }}
       >
-        {/* Filter by City (First) */}
+        {/* Filter by City */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Filter size={16} color={colors.brand.accent} />
           <span
@@ -1884,7 +1987,7 @@ export default function AdminPage() {
               fontFamily: typography.fontFamily.sans,
             }}
           >
-            Filter by City:
+            City:
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <Building2 size={16} color={colors.text.muted} />
@@ -1912,6 +2015,63 @@ export default function AdminPage() {
               <option value="Delhi">Delhi</option>
               <option value="Mumbai">Mumbai</option>
             </select>
+          </div>
+        </div>
+
+        {/* Filter by Joined Date */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Calendar size={16} color={colors.brand.accent} />
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: colors.text.muted,
+              fontFamily: typography.fontFamily.sans,
+            }}
+          >
+            Joined Date:
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <input
+              type="date"
+              value={selectedDateFilter}
+              onChange={(e) => setSelectedDateFilter(e.target.value)}
+              style={{
+                height: "38px",
+                borderRadius: "8px",
+                border: `1px solid ${colors.header.border}`,
+                padding: "0 10px",
+                fontFamily: typography.fontFamily.sans,
+                fontSize: "13px",
+                fontWeight: 600,
+                color: colors.brand.accent,
+                outline: "none",
+                cursor: "pointer",
+                background: "#FFFFFF",
+              }}
+            />
+            {selectedDateFilter && (
+              <button
+                type="button"
+                onClick={() => setSelectedDateFilter("")}
+                title="Clear date filter"
+                style={{
+                  background: "rgba(239, 68, 68, 0.1)",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: "22px",
+                  height: "22px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: colors.status.error,
+                  padding: 0,
+                }}
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1954,9 +2114,8 @@ export default function AdminPage() {
         data={filteredAdmins}
         keyExtractor={(a) => a.id}
         pageSize={5}
-        emptyMessage={
-          isLoadingAdmins ? "Loading admins..." : "No admin records found."
-        }
+        isLoading={isLoadingAdmins}
+        emptyMessage="No admin records found."
       />
 
       {/* ── Add Admin Modal ── */}
@@ -2045,12 +2204,14 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="text"
+                  maxLength={50}
                   placeholder="Enter full name"
                   {...register("name")}
                   style={inputStyle(!!errors.name)}
                 />
                 <FieldError message={errors.name?.message} />
               </div>
+
 
               <div
                 style={{
@@ -2074,7 +2235,7 @@ export default function AdminPage() {
                   <input
                     type="text"
                     maxLength={10}
-                    placeholder="9876543210"
+                    placeholder="Enter phone number"
                     {...register("phone")}
                     onKeyDown={(e) => {
                       if (
@@ -2112,21 +2273,10 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="text"
-                    list="admin-add-city-list"
-                    placeholder="Select or type city..."
+                    placeholder="Enter city"
                     {...register("city")}
-                    style={{
-                      ...inputStyle(!!errors.city),
-                      background: "#FFFFFF",
-                    }}
+                    style={inputStyle(!!errors.city)}
                   />
-                  <datalist id="admin-add-city-list">
-                    <option value="Jaipur" />
-                    <option value="Udaipur" />
-                    <option value="Jodhpur" />
-                    <option value="Delhi" />
-                    <option value="Mumbai" />
-                  </datalist>
                   <FieldError message={errors.city?.message} />
                 </div>
               </div>
@@ -2145,7 +2295,7 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="email"
-                  placeholder="admin@business.com"
+                  placeholder="Enter email address"
                   {...register("email")}
                   style={inputStyle(!!errors.email)}
                 />
@@ -2173,7 +2323,7 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="domain.ticketing.com"
+                    placeholder="domain.ticketingsolution.in"
                     {...register("subDomain")}
                     style={inputStyle(!!errors.subDomain)}
                   />
@@ -2195,12 +2345,16 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="50000"
+                    placeholder="Enter renewal amount"
                     {...register("renewalAmount", { valueAsNumber: true })}
                     onInput={(e) => {
                       const val = e.currentTarget.value.replace(/\D/g, "");
                       e.currentTarget.value = val;
-                      setValue("renewalAmount", Number(val) || 0);
+                      setValue(
+                        "renewalAmount",
+                        val ? Number(val) : (undefined as unknown as number),
+                        { shouldValidate: true },
+                      );
                     }}
                     style={inputStyle(!!errors.renewalAmount)}
                   />
@@ -2208,7 +2362,7 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Joined Date & Next Renewal Date (Auto-filled & Read-Only during creation) */}
+              {/* Joined Date & Next Renewal Date */}
               <div
                 style={{
                   display: "grid",
@@ -2233,20 +2387,23 @@ export default function AdminPage() {
                         fontWeight: 400,
                       }}
                     >
-                      (Auto-filled)
+                      (Default Today)
                     </span>
                   </label>
                   <input
                     type="date"
-                    value={getTodayDateStr()}
-                    disabled
-                    readOnly
-                    style={{
-                      ...inputStyle(false),
-                      background: "#F1F5F9",
-                      color: colors.text.muted,
-                      cursor: "not-allowed",
+                    {...register("joinedDate")}
+                    defaultValue={getTodayDateStr()}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setValue("joinedDate", val, { shouldValidate: true });
+                      setValue(
+                        "nextRenewalDate",
+                        calculateNextRenewalDate(val),
+                        { shouldValidate: true },
+                      );
                     }}
+                    style={inputStyle(false)}
                   />
                 </div>
 
@@ -2272,7 +2429,9 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="date"
-                    value={calculateNextRenewalDate(getTodayDateStr())}
+                    value={calculateNextRenewalDate(
+                      watchedJoinedDate || getTodayDateStr(),
+                    )}
                     disabled
                     readOnly
                     style={{
@@ -2282,6 +2441,127 @@ export default function AdminPage() {
                       cursor: "not-allowed",
                     }}
                   />
+                </div>
+              </div>
+
+              {/* Business Name + Admin Status row */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                  alignItems: "start",
+                }}
+              >
+                {/* Business Name */}
+                <div>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
+                    Business Name <span style={{ color: "#EF4444" }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={50}
+                    placeholder="Enter business name"
+                    {...register("businessName")}
+                    onInput={(e) => {
+                      const val = e.currentTarget.value
+                        .replace(/[^a-zA-Z0-9 ]/g, "")
+                        .slice(0, 50);
+                      e.currentTarget.value = val;
+                      setValue("businessName", val, { shouldValidate: true });
+                    }}
+                    style={inputStyle(!!errors.businessName)}
+                  />
+                  <FieldError message={errors.businessName?.message} />
+                </div>
+
+                {/* Status Toggle (Active / Inactive) */}
+                <div>
+                  <label
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: colors.text.primary,
+                      fontFamily: typography.fontFamily.sans,
+                      display: "block",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    Admin Status
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      background: "#F8FAFC",
+                      padding: "10px 14px",
+                      borderRadius: "8px",
+                      border: `1px solid ${colors.header.border}`,
+                      height: "40px",
+                      boxSizing: "border-box",
+                      marginTop: "4px",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextStatus =
+                          watchedStatus === "Active" ? "Inactive" : "Active";
+                        setValue("status", nextStatus, {
+                          shouldValidate: true,
+                        });
+                      }}
+                      style={{
+                        position: "relative",
+                        width: "44px",
+                        height: "24px",
+                        background:
+                          watchedStatus === "Active" ? "#16A34A" : "#94A3B8",
+                        borderRadius: "20px",
+                        border: "none",
+                        cursor: "pointer",
+                        transition: "background 0.2s ease",
+                        padding: "2px",
+                        display: "flex",
+                        alignItems: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "20px",
+                          height: "20px",
+                          background: "#FFFFFF",
+                          borderRadius: "50%",
+                          boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                          transform:
+                            watchedStatus === "Active"
+                              ? "translateX(20px)"
+                              : "translateX(0px)",
+                          transition: "transform 0.2s ease",
+                        }}
+                      />
+                    </button>
+                    <span
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        color:
+                          watchedStatus === "Active" ? "#16A34A" : "#64748B",
+                        fontFamily: typography.fontFamily.sans,
+                      }}
+                    >
+                      {watchedStatus === "Active" ? "Active" : "Inactive"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -2456,20 +2736,22 @@ export default function AdminPage() {
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving}
                   style={{
                     flex: 1,
                     height: "42px",
                     border: "none",
                     borderRadius: "8px",
-                    background: colors.brand.primary,
+                    background: isSaving ? "#D1D5DB" : colors.brand.primary,
                     color: colors.sidebar.activeText,
                     fontSize: "14px",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    cursor: isSaving ? "not-allowed" : "pointer",
                     fontFamily: typography.fontFamily.sans,
+                    opacity: isSaving ? 0.7 : 1,
                   }}
                 >
-                  Create Admin
+                  {isSaving ? "Creating..." : "Create Admin"}
                 </button>
               </div>
             </form>

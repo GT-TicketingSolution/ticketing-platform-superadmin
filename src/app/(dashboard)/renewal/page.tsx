@@ -494,11 +494,8 @@ export default function RenewalPage() {
         data={filteredRenewals}
         keyExtractor={(r) => r.id}
         pageSize={5}
-        emptyMessage={
-          isLoading
-            ? "Loading renewals..."
-            : (error ?? "No renewal records found.")
-        }
+        isLoading={isLoading}
+        emptyMessage={error ?? "No renewal records found."}
       />
     </div>
   );

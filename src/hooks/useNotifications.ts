@@ -143,7 +143,7 @@ function getUrgency(
 
 function getTargetUrl(notification: ApiNotification): string {
   if (notification.requestId) {
-    return `/pending-requests?requestId=${encodeURIComponent(
+    return `/admin-requests?requestId=${encodeURIComponent(
       notification.requestId,
     )}`;
   }

@@ -45,8 +45,8 @@ export const META_CONSTANTS: Record<string, PageMeta> = {
     ],
   },
   pendingRequests: {
-    title: "Pending Requests",
-    fullTitle: "Pending Requests | Super Admin – Ticketing Platform",
+    title: "Admin Requests",
+    fullTitle: "Admin Requests | Super Admin – Ticketing Platform",
     description:
       "Review, approve, or reject domain setup requests, server upgrades, and quota additions from tenant administrators.",
     keywords: [

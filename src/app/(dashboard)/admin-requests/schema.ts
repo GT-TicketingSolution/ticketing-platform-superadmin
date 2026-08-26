@@ -4,7 +4,8 @@ export const addRequestSchema = z.object({
   name: z
     .string()
     .min(1, "Full name is required")
-    .min(3, "Name must be at least 3 characters"),
+    .min(3, "Name must be at least 3 characters")
+    .max(50, "Name must be at most 50 characters"),
   phone: z
     .string()
     .min(1, "Phone number is required")

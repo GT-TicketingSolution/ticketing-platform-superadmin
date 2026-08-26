@@ -9,7 +9,6 @@ import {
   IndianRupee,
   FileSpreadsheet,
   Filter,
-  Search,
   Building2,
   Calendar,
   ArrowUpRight,
@@ -19,6 +18,7 @@ import {
 import { colors, typography } from "@/lib/theme";
 import { exportMultiSectionXLS, XLSSection } from "@/lib/exportUtils";
 import DashboardCharts from "@/components/dashboard/DashboardCharts";
+import { DashboardSkeleton } from "@/components/ui/Skeleton";
 
 type DashboardAdmin = {
   id: string;
@@ -167,7 +167,6 @@ export default function DashboardPage() {
   // Filters State
   const [selectedCity, setSelectedCity] = useState<string>("All");
   const [selectedDateRange, setSelectedDateRange] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState<string>("");
 
   const cities = useMemo(() => {
     const set = new Set<string>();
@@ -179,34 +178,16 @@ export default function DashboardPage() {
   const filteredAdmins = useMemo(() => {
     return admins.filter((admin) => {
       const matchesCity = selectedCity === "All" || admin.city === selectedCity;
-
-      const search = searchQuery.toLowerCase();
-
-      const matchesSearch =
-        searchQuery === "" ||
-        admin.name.toLowerCase().includes(search) ||
-        admin.email.toLowerCase().includes(search) ||
-        (admin.subdomain ?? "").toLowerCase().includes(search);
-
-      return matchesCity && matchesSearch;
+      return matchesCity;
     });
-  }, [admins, selectedCity, searchQuery]);
+  }, [admins, selectedCity]);
 
   const filteredRenewals = useMemo(() => {
     return renewals.filter((item) => {
       const matchesCity = selectedCity === "All" || item.city === selectedCity;
-
-      const search = searchQuery.toLowerCase();
-
-      const matchesSearch =
-        searchQuery === "" ||
-        item.adminName.toLowerCase().includes(search) ||
-        item.adminEmail.toLowerCase().includes(search) ||
-        item.city.toLowerCase().includes(search);
-
-      return matchesCity && matchesSearch;
+      return matchesCity;
     });
-  }, [renewals, selectedCity, searchQuery]);
+  }, [renewals, selectedCity]);
 
   const totalAdminsCount = dashboard?.stats.totalAdmins ?? 0;
 
@@ -231,7 +212,6 @@ export default function DashboardPage() {
             `₹${totalEarnings.toLocaleString("en-IN")}`,
           ],
           ["Selected City Filter", selectedCity],
-          ["Active Search Query", searchQuery || "None"],
           ["Export Generated At", new Date().toLocaleString()],
         ],
       },
@@ -305,19 +285,7 @@ export default function DashboardPage() {
   };
 
   if (loading) {
-    return (
-      <div
-        style={{
-          minHeight: "400px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: colors.text.muted,
-        }}
-      >
-        Loading dashboard...
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (error) {
@@ -475,52 +443,6 @@ export default function DashboardPage() {
           </select>
         </div>
 
-        {/* Search Field */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            border: `1px solid ${colors.header.border}`,
-            borderRadius: "8px",
-            padding: "0 12px",
-            height: "38px",
-            flex: 1,
-            minWidth: "200px",
-            background: "#FFFFFF",
-          }}
-        >
-          <Search size={16} color={colors.text.muted} />
-          <input
-            type="text"
-            placeholder="Search by name, email, or domain..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: "100%",
-              border: "none",
-              outline: "none",
-              fontFamily: typography.fontFamily.sans,
-              fontSize: "13px",
-              color: colors.text.primary,
-              background: "transparent",
-            }}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: colors.text.muted,
-                fontSize: "12px",
-              }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
       </div>
 
       {/* ── Metric Stat Cards Grid ── */}
@@ -603,9 +525,9 @@ export default function DashboardPage() {
           </div>
         </Link>
 
-        {/* Card 2: Number of Pending Requests (Clickable) */}
+        {/* Card 2: Number of Admin Requests (Clickable) */}
         <Link
-          href="/pending-requests?status=Pending"
+          href="/admin-requests?status=Pending"
           prefetch={true}
           style={{
             background: "#FFFFFF",
@@ -632,7 +554,7 @@ export default function DashboardPage() {
                 display: "block",
               }}
             >
-              Number of Pending Requests
+              Number of Admin Requests
             </span>
             <span
               style={{
@@ -986,8 +908,8 @@ export default function DashboardPage() {
                       <td style={{ padding: "14px 20px", fontWeight: 500 }}>
                         {admin.nextRenewal
                           ? new Date(admin.nextRenewal).toLocaleDateString(
-                              "en-IN",
-                            )
+                            "en-IN",
+                          )
                           : "-"}
                       </td>
                       <td
@@ -997,7 +919,6 @@ export default function DashboardPage() {
                           color: colors.text.primary,
                         }}
                       >
-                        ₹
                         {admin.renewalAmount
                           ? `₹${Number(admin.renewalAmount).toLocaleString("en-IN")}`
                           : "-"}
