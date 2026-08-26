@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, ilike, or } from "drizzle-orm";
 
 import { db } from "@/server/db";
-import { admins } from "@/server/db/schema";
+import { admins, renewals } from "@/server/db/schema";
 import { createAuditLog } from "@/server/audit/audit.service";
 import { createRenewal } from "@/server/renewal/renewal.service";
 
@@ -230,92 +230,6 @@ export async function getAdminById(id: string) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Create Admin                                                               */
-/* -------------------------------------------------------------------------- */
-
-// export async function createAdmin(data: CreateAdminInput, actorId: string) {
-//   const email = data.email.trim().toLowerCase();
-//   const subdomain = data.subdomain?.trim().toLowerCase() ?? null;
-//   const joinedAt = data.joinedAt ?? new Date();
-
-//   if (subdomain && !subdomain.endsWith(".ticketing.com")) {
-//     throw new Error("Subdomain must end with .ticketing.com");
-//   }
-
-//   // One-year renewal period
-//   const firstRenewalDate = new Date(joinedAt);
-//   firstRenewalDate.setFullYear(firstRenewalDate.getFullYear() + 1);
-
-//   const result = await db
-//     .insert(admins)
-//     .values({
-//       fullName: data.fullName.trim(),
-
-//       phone: data.phone.trim(),
-
-//       city: data.city.trim(),
-
-//       email: data.email.trim().toLowerCase(),
-
-//       subdomain: data.subdomain?.trim().toLowerCase() ?? null,
-
-//       renewalAmount: data.renewalAmount,
-
-//       joinedAt,
-
-//       nextRenewalDate: firstRenewalDate,
-
-//       status: data.status ?? "ACTIVE",
-//     })
-//     .returning();
-
-//   const admin = result[0];
-
-//   if (!admin) {
-//     return null;
-//   }
-
-//   /* ---------------------------------------------------------------------- */
-//   /* Create First Renewal                                                   */
-//   /* ---------------------------------------------------------------------- */
-
-//   await createRenewal(
-//     {
-//       adminId: admin.id,
-
-//       amount: data.renewalAmount,
-
-//       startDate: joinedAt,
-
-//       dueDate: firstRenewalDate,
-
-//       status: "PENDING",
-//     },
-//     actorId,
-//   );
-
-//   /* ---------------------------------------------------------------------- */
-//   /* Audit Admin Creation                                                   */
-//   /* ---------------------------------------------------------------------- */
-
-//   await createAuditLog({
-//     actorId,
-
-//     action: "CREATE",
-
-//     resourceType: "ADMIN",
-
-//     resourceId: admin.id,
-
-//     oldValues: null,
-
-//     newValues: admin,
-//   });
-
-//   return admin;
-// }
-
 export async function createAdmin(data: CreateAdminInput, actorId: string) {
   const email = data.email.trim().toLowerCase();
   const subdomain = data.subdomain?.trim().toLowerCase() ?? null;
@@ -324,8 +238,10 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
   // Validate Email
   // ----------------------------------------------------------------------
 
-  if (!email.endsWith("@ticketing.com")) {
-    throw new Error("Email must end with @ticketing.com");
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (!emailRegex.test(email)) {
+    throw new Error("Invalid email address");
   }
 
   // ----------------------------------------------------------------------
@@ -393,24 +309,32 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
 
   return admin;
 }
-/* -------------------------------------------------------------------------- */
-/* Update Admin                                                               */
-/* -------------------------------------------------------------------------- */
-
 export async function updateAdmin(
   id: string,
   data: UpdateAdminInput,
   actorId: string,
 ) {
+  /* ------------------------------------------------------------------------ */
+  /* Get Existing Admin                                                       */
+  /* ------------------------------------------------------------------------ */
+
   const existingAdmin = await getAdminById(id);
 
   if (!existingAdmin) {
     return null;
   }
 
+  /* ------------------------------------------------------------------------ */
+  /* Prepare Update                                                           */
+  /* ------------------------------------------------------------------------ */
+
   const updateData: Partial<typeof admins.$inferInsert> = {
     updatedAt: new Date(),
   };
+
+  /* ------------------------------------------------------------------------ */
+  /* Normal Fields                                                            */
+  /* ------------------------------------------------------------------------ */
 
   if (data.fullName !== undefined) {
     updateData.fullName = data.fullName.trim();
@@ -427,8 +351,10 @@ export async function updateAdmin(
   if (data.email !== undefined) {
     const email = data.email.trim().toLowerCase();
 
-    if (!email.endsWith("@ticketing.com")) {
-      throw new Error("Email must end with @ticketing.com");
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(email)) {
+      throw new Error("Invalid email address");
     }
 
     updateData.email = email;
@@ -454,12 +380,51 @@ export async function updateAdmin(
     updateData.renewalAmount = data.renewalAmount;
   }
 
-  if (data.joinedAt !== undefined) {
-    updateData.joinedAt = data.joinedAt;
-  }
   if (data.status !== undefined) {
     updateData.status = data.status;
   }
+
+  /* ------------------------------------------------------------------------ */
+  /* Renewal Cycle                                                            */
+  /* ------------------------------------------------------------------------ */
+
+  let newJoinedAt: Date | undefined;
+  let newRenewalDate: Date | undefined;
+
+  if (data.joinedAt !== undefined) {
+    newJoinedAt = new Date(data.joinedAt);
+
+    if (Number.isNaN(newJoinedAt.getTime())) {
+      throw new Error("Invalid joined date");
+    }
+
+    /*
+     * Renewal cycle:
+     *
+     * joinedAt
+     *   +
+     * 1 year
+     *   =
+     * nextRenewalDate
+     */
+
+    newRenewalDate = new Date(newJoinedAt);
+
+    newRenewalDate.setFullYear(newRenewalDate.getFullYear() + 1);
+
+    updateData.joinedAt = newJoinedAt;
+
+    /*
+     * Keep admin's stored next renewal date
+     * synchronized with joined date.
+     */
+
+    updateData.nextRenewalDate = newRenewalDate;
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* Update Admin                                                             */
+  /* ------------------------------------------------------------------------ */
 
   const result = await db
     .update(admins)
@@ -470,8 +435,36 @@ export async function updateAdmin(
   const admin = result[0];
 
   if (!admin) {
-    return null;
+    throw new Error("Admin not found");
   }
+
+  /* ------------------------------------------------------------------------ */
+  /* Update Current Pending Renewal                                           */
+  /* ------------------------------------------------------------------------ */
+
+  if (newJoinedAt && newRenewalDate) {
+    /*
+     * When the joined date changes, update the current
+     * pending renewal to match the new renewal cycle.
+     *
+     * There should only be one PENDING renewal for an admin.
+     */
+
+    await db
+      .update(renewals)
+      .set({
+        startDate: newJoinedAt,
+        dueDate: newRenewalDate,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(renewals.adminId, admin.id), eq(renewals.status, "PENDING")),
+      );
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* Audit Log                                                                */
+  /* ------------------------------------------------------------------------ */
 
   await createAuditLog({
     actorId,
@@ -484,12 +477,22 @@ export async function updateAdmin(
 
     oldValues: existingAdmin,
 
-    newValues: admin,
+    newValues: {
+      ...admin,
+
+      nextRenewalDate:
+        newRenewalDate ?? calculateNextRenewalDate(admin.joinedAt),
+    },
   });
+
+  /* ------------------------------------------------------------------------ */
+  /* Response                                                                 */
+  /* ------------------------------------------------------------------------ */
 
   return {
     ...admin,
-    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+
+    nextRenewalDate: newRenewalDate ?? calculateNextRenewalDate(admin.joinedAt),
   };
 }
 

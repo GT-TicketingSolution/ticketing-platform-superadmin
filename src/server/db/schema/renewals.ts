@@ -6,7 +6,10 @@ import {
   timestamp,
   numeric,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+import { sql } from "drizzle-orm";
 
 import { admins } from "./admins";
 
@@ -97,6 +100,11 @@ export const renewals = pgTable(
     index("renewals_status_idx").on(table.status),
 
     index("renewals_due_date_idx").on(table.dueDate),
+
+    // Only one PENDING renewal is allowed for each admin
+    uniqueIndex("renewals_one_pending_per_admin_idx")
+      .on(table.adminId)
+      .where(sql`${table.status} = 'PENDING'`),
   ],
 );
 export const renewalNotificationStatusEnum = pgEnum(
