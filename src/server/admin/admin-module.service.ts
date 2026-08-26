@@ -6,6 +6,17 @@ import { admins, modules, adminModuleAccess } from "@/server/db/schema";
 
 import { createAuditLog } from "@/server/audit/audit.service";
 
+const DEFAULT_MODULE_KEYS = [
+  "MANAGER_MANAGEMENT",
+  "STAFF_MANAGEMENT",
+  "ATTRACTION_MANAGEMENT",
+  "BOOKINGS",
+  "TRANSACTIONS",
+  "INVOICES",
+  "INVENTORY_AND_CAPACITY",
+  "REPORTS",
+];
+
 /* -------------------------------------------------------------------------- */
 /* Get Admin Modules                                                          */
 /* -------------------------------------------------------------------------- */
@@ -258,4 +269,97 @@ export async function revokeModuleAccess(
   });
 
   return deletedAccess;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Grant Admin Modules                                                       */
+/* -------------------------------------------------------------------------- */
+
+export async function grantAdminModules(
+  adminId: string,
+  permissionModuleIds: string[],
+  actorId: string,
+) {
+  /* ---------------------------------------------------------------------- */
+  /* Get all active modules                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  const activeModules = await getModules();
+
+  /* ---------------------------------------------------------------------- */
+  /* Get Default Modules                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  const defaultModules = activeModules.filter((module) =>
+    DEFAULT_MODULE_KEYS.includes(module.key),
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Get Permission Modules                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  const permissionModules = [];
+
+  for (const moduleId of permissionModuleIds) {
+    const module = activeModules.find((item) => item.id === moduleId);
+
+    if (!module) {
+      throw new Error(`Module not found: ${moduleId}`);
+    }
+
+    permissionModules.push(module);
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Combine Default + Permission Modules                                  */
+  /* ---------------------------------------------------------------------- */
+
+  const modulesToGrant = [...defaultModules, ...permissionModules];
+
+  /* ---------------------------------------------------------------------- */
+  /* Remove duplicates                                                      */
+  /* ---------------------------------------------------------------------- */
+
+  const uniqueModules = Array.from(
+    new Map(modulesToGrant.map((module) => [module.id, module])).values(),
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Get Existing Admin Access                                             */
+  /* ---------------------------------------------------------------------- */
+
+  const existingAccess = await db
+    .select({
+      moduleId: adminModuleAccess.moduleId,
+    })
+    .from(adminModuleAccess)
+    .where(eq(adminModuleAccess.adminId, adminId));
+
+  const existingModuleIds = new Set(
+    existingAccess.map((access) => access.moduleId),
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Only Grant Missing Modules                                            */
+  /* ---------------------------------------------------------------------- */
+
+  const modulesToInsert = uniqueModules.filter(
+    (module) => !existingModuleIds.has(module.id),
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Grant Access                                                           */
+  /* ---------------------------------------------------------------------- */
+
+  const results = [];
+
+  for (const module of modulesToInsert) {
+    const access = await grantModuleAccess(adminId, module.id, actorId);
+
+    if (access) {
+      results.push(access);
+    }
+  }
+
+  return results;
 }

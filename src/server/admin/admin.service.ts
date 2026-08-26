@@ -17,15 +17,19 @@ export type CreateAdminInput = {
   subdomain?: string | null;
   renewalAmount: string;
   joinedAt?: Date;
-  nextRenewalDate: Date;
+
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
-export type UpdateAdminInput = Partial<
-  Omit<CreateAdminInput, "joinedAt" | "nextRenewalDate">
-> & {
+export type UpdateAdminInput = {
+  fullName?: string;
+  phone?: string;
+  city?: string;
+  email?: string;
+  subdomain?: string | null;
+  renewalAmount?: string;
   joinedAt?: Date;
-  nextRenewalDate?: Date;
+  status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
 /* -------------------------------------------------------------------------- */
@@ -40,14 +44,40 @@ export type GetAdminsInput = {
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
+/* -------------------------------------------------------------------------- */
+/* Get All Admins - Search / Filter / Pagination                             */
+/* -------------------------------------------------------------------------- */
+
+function calculateNextRenewalDate(joinedAt: Date | null) {
+  if (!joinedAt) {
+    return null;
+  }
+
+  const nextRenewalDate = new Date(joinedAt);
+  nextRenewalDate.setFullYear(nextRenewalDate.getFullYear() + 1);
+
+  return nextRenewalDate;
+}
+
 export async function getAdmins({
   page = 1,
-  limit = 10,
+  limit,
   search,
   city,
   status,
 }: GetAdminsInput = {}) {
-  const offset = (page - 1) * limit;
+  /* ------------------------------------------------------------------------ */
+  /* Normalize Pagination                                                     */
+  /* ------------------------------------------------------------------------ */
+
+  const currentPage = Math.max(1, Number(page) || 1);
+
+  // If FE sends a valid limit, pagination is enabled.
+  // If FE does not send limit, all matching records are returned.
+  const pageLimit =
+    limit !== undefined && Number(limit) > 0 ? Number(limit) : undefined;
+
+  const offset = pageLimit ? (currentPage - 1) * pageLimit : 0;
 
   /* ------------------------------------------------------------------------ */
   /* Filters                                                                  */
@@ -80,31 +110,49 @@ export async function getAdmins({
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   /* ------------------------------------------------------------------------ */
-  /* Fetch Admins                                                             */
+  /* Fetch Admins + Total Count                                               */
   /* ------------------------------------------------------------------------ */
 
   const [data, totalResult] = await Promise.all([
-    db
-      .select({
-        id: admins.id,
-        fullName: admins.fullName,
-        phone: admins.phone,
-        email: admins.email,
-        city: admins.city,
-        subdomain: admins.subdomain,
-        renewalAmount: admins.renewalAmount,
-        joinedAt: admins.joinedAt,
-        nextRenewalDate: admins.nextRenewalDate,
-        status: admins.status,
-        createdAt: admins.createdAt,
-        updatedAt: admins.updatedAt,
-      })
-      .from(admins)
-      .where(whereClause)
-      .orderBy(desc(admins.createdAt))
-      .limit(limit)
-      .offset(offset),
+    // ------------------------------------------------------------------------
+    // Query 1:
+    // Get records for the current page.
+    // LIMIT/OFFSET are applied ONLY here.
+    // ------------------------------------------------------------------------
+    (() => {
+      const query = db
+        .select({
+          id: admins.id,
+          fullName: admins.fullName,
+          phone: admins.phone,
+          email: admins.email,
+          city: admins.city,
+          subdomain: admins.subdomain,
+          renewalAmount: admins.renewalAmount,
+          joinedAt: admins.joinedAt,
+          status: admins.status,
+          createdAt: admins.createdAt,
+          updatedAt: admins.updatedAt,
+        })
+        .from(admins)
+        .where(whereClause)
+        .orderBy(desc(admins.createdAt));
 
+      if (pageLimit !== undefined) {
+        return query.limit(pageLimit).offset(offset);
+      }
+
+      // No limit from FE → return all matching records
+      return query;
+    })(),
+
+    // ------------------------------------------------------------------------
+    // Query 2:
+    // Count ALL matching records.
+    //
+    // IMPORTANT:
+    // There is NO LIMIT and NO OFFSET here.
+    // ------------------------------------------------------------------------
     db
       .select({
         count: count(),
@@ -113,18 +161,49 @@ export async function getAdmins({
       .where(whereClause),
   ]);
 
+  const adminsWithRenewalDate = data.map((admin) => ({
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  }));
+
+  /* ------------------------------------------------------------------------ */
+  /* Total Count                                                              */
+  /* ------------------------------------------------------------------------ */
+
   const total = Number(totalResult[0]?.count ?? 0);
 
-  return {
-    data,
+  /* ------------------------------------------------------------------------ */
+  /* Pagination                                                               */
+  /* ------------------------------------------------------------------------ */
 
+  if (pageLimit !== undefined) {
+    const totalPages = Math.ceil(total / pageLimit);
+
+    return {
+      data: adminsWithRenewalDate,
+      pagination: {
+        page: currentPage,
+        limit: pageLimit,
+        total,
+        totalPages,
+        hasNextPage: currentPage < totalPages,
+        hasPreviousPage: currentPage > 1,
+      },
+    };
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* No Pagination                                                            */
+  /* ------------------------------------------------------------------------ */
+
+  return {
+    data: adminsWithRenewalDate,
     pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-      hasNextPage: page < Math.ceil(total / limit),
-      hasPreviousPage: page > 1,
+      page: 1,
+      limit: total,
+      totalPages: total > 0 ? 1 : 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
     },
   };
 }
@@ -139,14 +218,124 @@ export async function getAdminById(id: string) {
     .where(eq(admins.id, id))
     .limit(1);
 
-  return result[0] ?? null;
+  const admin = result[0];
+
+  if (!admin) {
+    return null;
+  }
+
+  return {
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
 /* Create Admin                                                               */
 /* -------------------------------------------------------------------------- */
 
+// export async function createAdmin(data: CreateAdminInput, actorId: string) {
+//   const email = data.email.trim().toLowerCase();
+//   const subdomain = data.subdomain?.trim().toLowerCase() ?? null;
+//   const joinedAt = data.joinedAt ?? new Date();
+
+//   if (subdomain && !subdomain.endsWith(".ticketing.com")) {
+//     throw new Error("Subdomain must end with .ticketing.com");
+//   }
+
+//   // One-year renewal period
+//   const firstRenewalDate = new Date(joinedAt);
+//   firstRenewalDate.setFullYear(firstRenewalDate.getFullYear() + 1);
+
+//   const result = await db
+//     .insert(admins)
+//     .values({
+//       fullName: data.fullName.trim(),
+
+//       phone: data.phone.trim(),
+
+//       city: data.city.trim(),
+
+//       email: data.email.trim().toLowerCase(),
+
+//       subdomain: data.subdomain?.trim().toLowerCase() ?? null,
+
+//       renewalAmount: data.renewalAmount,
+
+//       joinedAt,
+
+//       nextRenewalDate: firstRenewalDate,
+
+//       status: data.status ?? "ACTIVE",
+//     })
+//     .returning();
+
+//   const admin = result[0];
+
+//   if (!admin) {
+//     return null;
+//   }
+
+//   /* ---------------------------------------------------------------------- */
+//   /* Create First Renewal                                                   */
+//   /* ---------------------------------------------------------------------- */
+
+//   await createRenewal(
+//     {
+//       adminId: admin.id,
+
+//       amount: data.renewalAmount,
+
+//       startDate: joinedAt,
+
+//       dueDate: firstRenewalDate,
+
+//       status: "PENDING",
+//     },
+//     actorId,
+//   );
+
+//   /* ---------------------------------------------------------------------- */
+//   /* Audit Admin Creation                                                   */
+//   /* ---------------------------------------------------------------------- */
+
+//   await createAuditLog({
+//     actorId,
+
+//     action: "CREATE",
+
+//     resourceType: "ADMIN",
+
+//     resourceId: admin.id,
+
+//     oldValues: null,
+
+//     newValues: admin,
+//   });
+
+//   return admin;
+// }
+
 export async function createAdmin(data: CreateAdminInput, actorId: string) {
+  const email = data.email.trim().toLowerCase();
+  const subdomain = data.subdomain?.trim().toLowerCase() ?? null;
+
+  // ----------------------------------------------------------------------
+  // Validate Email
+  // ----------------------------------------------------------------------
+
+  if (!email.endsWith("@ticketing.com")) {
+    throw new Error("Email must end with @ticketing.com");
+  }
+
+  // ----------------------------------------------------------------------
+  // Validate Subdomain
+  // ----------------------------------------------------------------------
+
+  if (subdomain && !subdomain.endsWith(".ticketing.com")) {
+    throw new Error("Subdomain must end with .ticketing.com");
+  }
+
   const joinedAt = data.joinedAt ?? new Date();
 
   // One-year renewal period
@@ -157,21 +346,13 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
     .insert(admins)
     .values({
       fullName: data.fullName.trim(),
-
       phone: data.phone.trim(),
-
       city: data.city.trim(),
-
-      email: data.email.trim().toLowerCase(),
-
-      subdomain: data.subdomain?.trim().toLowerCase() ?? null,
-
+      email,
+      subdomain,
       renewalAmount: data.renewalAmount,
-
       joinedAt,
-
       nextRenewalDate: firstRenewalDate,
-
       status: data.status ?? "ACTIVE",
     })
     .returning();
@@ -182,40 +363,31 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
     return null;
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Create First Renewal                                                   */
-  /* ---------------------------------------------------------------------- */
+  // ----------------------------------------------------------------------
+  // Create First Renewal
+  // ----------------------------------------------------------------------
 
   await createRenewal(
     {
       adminId: admin.id,
-
       amount: data.renewalAmount,
-
       startDate: joinedAt,
-
       dueDate: firstRenewalDate,
-
       status: "PENDING",
     },
     actorId,
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Audit Admin Creation                                                   */
-  /* ---------------------------------------------------------------------- */
+  // ----------------------------------------------------------------------
+  // Audit Admin Creation
+  // ----------------------------------------------------------------------
 
   await createAuditLog({
     actorId,
-
     action: "CREATE",
-
     resourceType: "ADMIN",
-
     resourceId: admin.id,
-
     oldValues: null,
-
     newValues: admin,
   });
 
@@ -253,11 +425,29 @@ export async function updateAdmin(
   }
 
   if (data.email !== undefined) {
-    updateData.email = data.email.trim().toLowerCase();
+    const email = data.email.trim().toLowerCase();
+
+    if (!email.endsWith("@ticketing.com")) {
+      throw new Error("Email must end with @ticketing.com");
+    }
+
+    updateData.email = email;
   }
 
   if (data.subdomain !== undefined) {
-    updateData.subdomain = data.subdomain?.trim().toLowerCase() ?? null;
+    const value = data.subdomain?.trim().toLowerCase() ?? "";
+
+    if (!value) {
+      updateData.subdomain = null;
+    } else {
+      if (!/^[a-z0-9-]+$/.test(value)) {
+        throw new Error(
+          "Subdomain can only contain lowercase letters, numbers, and hyphens",
+        );
+      }
+
+      updateData.subdomain = `${value}.ticketing.com`;
+    }
   }
 
   if (data.renewalAmount !== undefined) {
@@ -267,11 +457,6 @@ export async function updateAdmin(
   if (data.joinedAt !== undefined) {
     updateData.joinedAt = data.joinedAt;
   }
-
-  if (data.nextRenewalDate !== undefined) {
-    updateData.nextRenewalDate = data.nextRenewalDate;
-  }
-
   if (data.status !== undefined) {
     updateData.status = data.status;
   }
@@ -302,7 +487,10 @@ export async function updateAdmin(
     newValues: admin,
   });
 
-  return admin;
+  return {
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
