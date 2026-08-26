@@ -24,6 +24,10 @@ export const admins = pgTable(
       length: 150,
     }).notNull(),
 
+    businessName: varchar("business_name", {
+      length: 150,
+    }).notNull(),
+
     phone: varchar("phone", {
       length: 30,
     }).notNull(),
