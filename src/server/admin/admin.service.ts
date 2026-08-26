@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { admins, renewals } from "@/server/db/schema";
@@ -41,6 +41,8 @@ export type GetAdminsInput = {
   limit?: number;
   search?: string;
   city?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
@@ -64,6 +66,8 @@ export async function getAdmins({
   limit,
   search,
   city,
+  dateFrom,
+  dateTo,
   status,
 }: GetAdminsInput = {}) {
   /* ------------------------------------------------------------------------ */
@@ -72,8 +76,6 @@ export async function getAdmins({
 
   const currentPage = Math.max(1, Number(page) || 1);
 
-  // If FE sends a valid limit, pagination is enabled.
-  // If FE does not send limit, all matching records are returned.
   const pageLimit =
     limit !== undefined && Number(limit) > 0 ? Number(limit) : undefined;
 
@@ -85,23 +87,60 @@ export async function getAdmins({
 
   const conditions = [];
 
+  /* ------------------------------------------------------------------------ */
+  /* Search                                                                   */
+  /*                                                                          */
+  /* Searches:                                                                */
+  /* - Full Name                                                              */
+  /* - Phone                                                                   */
+  /* - Email                                                                   */
+  /* - Subdomain / Domain                                                      */
+  /* ------------------------------------------------------------------------ */
+
   if (search?.trim()) {
     const searchValue = `%${search.trim()}%`;
 
     conditions.push(
       or(
         ilike(admins.fullName, searchValue),
-        ilike(admins.email, searchValue),
         ilike(admins.phone, searchValue),
-        ilike(admins.city, searchValue),
+        ilike(admins.email, searchValue),
         ilike(admins.subdomain, searchValue),
       ),
     );
   }
 
+  /* ------------------------------------------------------------------------ */
+  /* City                                                                     */
+  /* ------------------------------------------------------------------------ */
+
   if (city?.trim()) {
-    conditions.push(ilike(admins.city, city.trim()));
+    conditions.push(ilike(admins.city, `%${city.trim()}%`));
   }
+
+  /* ------------------------------------------------------------------------ */
+  /* Date From                                                                */
+  /*                                                                          */
+  /* joinedAt >= dateFrom                                                     */
+  /* ------------------------------------------------------------------------ */
+
+  if (dateFrom) {
+    conditions.push(gte(admins.joinedAt, dateFrom));
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* Date To                                                                  */
+  /*                                                                          */
+  /* joinedAt <= dateTo                                                       */
+  /* ------------------------------------------------------------------------ */
+
+  if (dateTo) {
+    conditions.push(lte(admins.joinedAt, dateTo));
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* Status                                                                   */
+  /* ------------------------------------------------------------------------ */
 
   if (status) {
     conditions.push(eq(admins.status, status));
@@ -114,11 +153,6 @@ export async function getAdmins({
   /* ------------------------------------------------------------------------ */
 
   const [data, totalResult] = await Promise.all([
-    // ------------------------------------------------------------------------
-    // Query 1:
-    // Get records for the current page.
-    // LIMIT/OFFSET are applied ONLY here.
-    // ------------------------------------------------------------------------
     (() => {
       const query = db
         .select({
@@ -142,17 +176,9 @@ export async function getAdmins({
         return query.limit(pageLimit).offset(offset);
       }
 
-      // No limit from FE → return all matching records
       return query;
     })(),
 
-    // ------------------------------------------------------------------------
-    // Query 2:
-    // Count ALL matching records.
-    //
-    // IMPORTANT:
-    // There is NO LIMIT and NO OFFSET here.
-    // ------------------------------------------------------------------------
     db
       .select({
         count: count(),
@@ -160,6 +186,10 @@ export async function getAdmins({
       .from(admins)
       .where(whereClause),
   ]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Add Calculated Renewal Date                                              */
+  /* ------------------------------------------------------------------------ */
 
   const adminsWithRenewalDate = data.map((admin) => ({
     ...admin,
@@ -201,6 +231,7 @@ export async function getAdmins({
     pagination: {
       page: 1,
       limit: total,
+      total,
       totalPages: total > 0 ? 1 : 0,
       hasNextPage: false,
       hasPreviousPage: false,
