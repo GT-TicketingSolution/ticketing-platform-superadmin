@@ -245,7 +245,18 @@ export async function PATCH(
       if (body.subdomain === null) {
         updateData.subdomain = null;
       } else {
-        const normalizedSubdomain = body.subdomain.trim().toLowerCase();
+        let normalizedSubdomain = body.subdomain.trim().toLowerCase();
+
+        // Frontend may send:
+        // letssay
+        // OR
+        // letssay.ticketing.com
+        if (normalizedSubdomain.endsWith(".ticketing.com")) {
+          normalizedSubdomain = normalizedSubdomain.replace(
+            /\.ticketing\.com$/,
+            "",
+          );
+        }
 
         if (!normalizedSubdomain) {
           updateData.subdomain = null;
@@ -259,6 +270,8 @@ export async function PATCH(
             { status: 400 },
           );
         } else {
+          // Pass only the prefix to updateAdmin().
+          // updateAdmin() will append .ticketing.com.
           updateData.subdomain = normalizedSubdomain;
         }
       }
@@ -331,6 +344,16 @@ export async function PATCH(
     /* ---------------------------------------------------------------------- */
 
     const admin = await updateAdmin(id, updateData, user.id);
+
+    if (!admin) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Admin not found",
+        },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json({
       success: true,

@@ -48,6 +48,17 @@ export type GetAdminsInput = {
 /* Get All Admins - Search / Filter / Pagination                             */
 /* -------------------------------------------------------------------------- */
 
+function calculateNextRenewalDate(joinedAt: Date | null) {
+  if (!joinedAt) {
+    return null;
+  }
+
+  const nextRenewalDate = new Date(joinedAt);
+  nextRenewalDate.setFullYear(nextRenewalDate.getFullYear() + 1);
+
+  return nextRenewalDate;
+}
+
 export async function getAdmins({
   page = 1,
   limit,
@@ -119,7 +130,6 @@ export async function getAdmins({
           subdomain: admins.subdomain,
           renewalAmount: admins.renewalAmount,
           joinedAt: admins.joinedAt,
-          nextRenewalDate: admins.nextRenewalDate,
           status: admins.status,
           createdAt: admins.createdAt,
           updatedAt: admins.updatedAt,
@@ -151,6 +161,11 @@ export async function getAdmins({
       .where(whereClause),
   ]);
 
+  const adminsWithRenewalDate = data.map((admin) => ({
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  }));
+
   /* ------------------------------------------------------------------------ */
   /* Total Count                                                              */
   /* ------------------------------------------------------------------------ */
@@ -165,8 +180,7 @@ export async function getAdmins({
     const totalPages = Math.ceil(total / pageLimit);
 
     return {
-      data,
-
+      data: adminsWithRenewalDate,
       pagination: {
         page: currentPage,
         limit: pageLimit,
@@ -183,12 +197,10 @@ export async function getAdmins({
   /* ------------------------------------------------------------------------ */
 
   return {
-    data,
-
+    data: adminsWithRenewalDate,
     pagination: {
       page: 1,
       limit: total,
-      total,
       totalPages: total > 0 ? 1 : 0,
       hasNextPage: false,
       hasPreviousPage: false,
@@ -385,17 +397,6 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
 /* Update Admin                                                               */
 /* -------------------------------------------------------------------------- */
 
-function calculateNextRenewalDate(joinedAt: Date | null) {
-  if (!joinedAt) {
-    return null;
-  }
-
-  const nextRenewalDate = new Date(joinedAt);
-  nextRenewalDate.setFullYear(nextRenewalDate.getFullYear() + 1);
-
-  return nextRenewalDate;
-}
-
 export async function updateAdmin(
   id: string,
   data: UpdateAdminInput,
@@ -486,7 +487,10 @@ export async function updateAdmin(
     newValues: admin,
   });
 
-  return admin;
+  return {
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
