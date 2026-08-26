@@ -114,17 +114,28 @@ export async function PATCH(request: NextRequest) {
         );
       }
 
-      phoneValue = phone.trim();
+      // Remove spaces and hyphens for validation/normalization
+      const normalizedPhone = phone.replace(/[\s-]/g, "");
 
-      if (!/^\d{10}$/.test(phoneValue)) {
+      // Accept:
+      // 9876543210
+      // +919876543210
+      const phoneRegex = /^(?:\+91)?[6-9]\d{9}$/;
+
+      if (!phoneRegex.test(normalizedPhone)) {
         return NextResponse.json(
           {
             success: false,
-            message: "Phone number must contain exactly 10 digits",
+            message: "Please enter a valid Indian phone number",
           },
           { status: 400 },
         );
       }
+
+      // Always store phone number in canonical international format
+      phoneValue = normalizedPhone.startsWith("+91")
+        ? normalizedPhone
+        : `+91${normalizedPhone}`;
     }
 
     /* ---------------------------------------------------------------------- */

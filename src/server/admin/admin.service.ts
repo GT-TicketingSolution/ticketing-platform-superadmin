@@ -17,15 +17,19 @@ export type CreateAdminInput = {
   subdomain?: string | null;
   renewalAmount: string;
   joinedAt?: Date;
-  nextRenewalDate: Date;
+
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
-export type UpdateAdminInput = Partial<
-  Omit<CreateAdminInput, "joinedAt" | "nextRenewalDate">
-> & {
+export type UpdateAdminInput = {
+  fullName?: string;
+  phone?: string;
+  city?: string;
+  email?: string;
+  subdomain?: string | null;
+  renewalAmount?: string;
   joinedAt?: Date;
-  nextRenewalDate?: Date;
+  status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
 /* -------------------------------------------------------------------------- */
@@ -43,6 +47,17 @@ export type GetAdminsInput = {
 /* -------------------------------------------------------------------------- */
 /* Get All Admins - Search / Filter / Pagination                             */
 /* -------------------------------------------------------------------------- */
+
+function calculateNextRenewalDate(joinedAt: Date | null) {
+  if (!joinedAt) {
+    return null;
+  }
+
+  const nextRenewalDate = new Date(joinedAt);
+  nextRenewalDate.setFullYear(nextRenewalDate.getFullYear() + 1);
+
+  return nextRenewalDate;
+}
 
 export async function getAdmins({
   page = 1,
@@ -115,7 +130,6 @@ export async function getAdmins({
           subdomain: admins.subdomain,
           renewalAmount: admins.renewalAmount,
           joinedAt: admins.joinedAt,
-          nextRenewalDate: admins.nextRenewalDate,
           status: admins.status,
           createdAt: admins.createdAt,
           updatedAt: admins.updatedAt,
@@ -147,6 +161,11 @@ export async function getAdmins({
       .where(whereClause),
   ]);
 
+  const adminsWithRenewalDate = data.map((admin) => ({
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  }));
+
   /* ------------------------------------------------------------------------ */
   /* Total Count                                                              */
   /* ------------------------------------------------------------------------ */
@@ -161,8 +180,7 @@ export async function getAdmins({
     const totalPages = Math.ceil(total / pageLimit);
 
     return {
-      data,
-
+      data: adminsWithRenewalDate,
       pagination: {
         page: currentPage,
         limit: pageLimit,
@@ -179,12 +197,10 @@ export async function getAdmins({
   /* ------------------------------------------------------------------------ */
 
   return {
-    data,
-
+    data: adminsWithRenewalDate,
     pagination: {
       page: 1,
       limit: total,
-      total,
       totalPages: total > 0 ? 1 : 0,
       hasNextPage: false,
       hasPreviousPage: false,
@@ -202,7 +218,16 @@ export async function getAdminById(id: string) {
     .where(eq(admins.id, id))
     .limit(1);
 
-  return result[0] ?? null;
+  const admin = result[0];
+
+  if (!admin) {
+    return null;
+  }
+
+  return {
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -410,13 +435,19 @@ export async function updateAdmin(
   }
 
   if (data.subdomain !== undefined) {
-    const subdomain = data.subdomain?.trim().toLowerCase() ?? null;
+    const value = data.subdomain?.trim().toLowerCase() ?? "";
 
-    if (subdomain && !subdomain.endsWith(".ticketing.com")) {
-      throw new Error("Subdomain must end with .ticketing.com");
+    if (!value) {
+      updateData.subdomain = null;
+    } else {
+      if (!/^[a-z0-9-]+$/.test(value)) {
+        throw new Error(
+          "Subdomain can only contain lowercase letters, numbers, and hyphens",
+        );
+      }
+
+      updateData.subdomain = `${value}.ticketing.com`;
     }
-
-    updateData.subdomain = subdomain;
   }
 
   if (data.renewalAmount !== undefined) {
@@ -426,11 +457,6 @@ export async function updateAdmin(
   if (data.joinedAt !== undefined) {
     updateData.joinedAt = data.joinedAt;
   }
-
-  if (data.nextRenewalDate !== undefined) {
-    updateData.nextRenewalDate = data.nextRenewalDate;
-  }
-
   if (data.status !== undefined) {
     updateData.status = data.status;
   }
@@ -461,7 +487,10 @@ export async function updateAdmin(
     newValues: admin,
   });
 
-  return admin;
+  return {
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
