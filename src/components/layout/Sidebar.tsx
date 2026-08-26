@@ -24,7 +24,7 @@ import { useProfile } from "@/context/ProfileContext";
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Admin", href: "/admin", icon: Shield },
-  { label: "Pending Requests", href: "/pending-requests", icon: Clock },
+  { label: "Admin Requests", href: "/admin-requests", icon: Clock },
   { label: "Renewal", href: "/renewal", icon: RefreshCw },
 ];
 

@@ -21,6 +21,7 @@ import {
   type Notification,
   type NotificationType,
 } from "@/hooks/useNotifications";
+import { NotificationsSkeleton } from "@/components/ui/Skeleton";
 
 //  Types
 type FilterTab = "all" | NotificationType;
@@ -420,6 +421,10 @@ export default function NotificationsPage() {
     { key: "medium", label: "Medium", color: "#F59E0B" },
     { key: "low", label: "Low", color: "#22C55E" },
   ];
+
+  if (loading) {
+    return <NotificationsSkeleton />;
+  }
 
   return (
     <div style={{ maxWidth: "900px", margin: "0 auto" }}>

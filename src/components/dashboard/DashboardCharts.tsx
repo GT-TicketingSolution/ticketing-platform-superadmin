@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import {
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   PieChart,
@@ -294,30 +292,10 @@ export default function DashboardCharts({
           <div style={{ width: "100%", height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
               {viewMode === "annual" ? (
-                <AreaChart
+                <BarChart
                   data={annualEarningsData}
                   margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
                 >
-                  <defs>
-                    <linearGradient
-                      id="earningsGradient"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="5%"
-                        stopColor={colors.brand.primary}
-                        stopOpacity={0.4}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor={colors.brand.primary}
-                        stopOpacity={0.0}
-                      />
-                    </linearGradient>
-                  </defs>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="#E2E8F0"
@@ -357,7 +335,7 @@ export default function DashboardCharts({
                                 color: colors.brand.primary,
                               }}
                             >
-                              {label}
+                              Year: {label}
                             </div>
                             <div style={{ marginTop: "4px" }}>
                               Earnings:{" "}
@@ -369,15 +347,12 @@ export default function DashboardCharts({
                       return null;
                     }}
                   />
-                  <Area
-                    type="monotone"
+                  <Bar
                     dataKey="earnings"
-                    stroke={colors.sidebar.bg}
-                    strokeWidth={3}
-                    fillOpacity={1}
-                    fill="url(#earningsGradient)"
+                    fill={colors.sidebar.bg}
+                    radius={[4, 4, 0, 0]}
                   />
-                </AreaChart>
+                </BarChart>
               ) : (
                 <BarChart
                   data={monthlyRevenueData}

@@ -11,7 +11,7 @@ const PROTECTED_ROUTES = [
   "/admin",
   "/dashboard",
   "/notifications",
-  "/pending-requests",
+  "/admin-requests",
   "/renewal",
 ];
 
@@ -121,8 +121,8 @@ export const config = {
     "/notifications",
     "/notifications/:path*",
 
-    "/pending-requests",
-    "/pending-requests/:path*",
+    "/admin-requests",
+    "/admin-requests/:path*",
 
     "/renewal",
     "/renewal/:path*",

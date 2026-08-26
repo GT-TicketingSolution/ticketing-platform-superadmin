@@ -13,21 +13,23 @@ export const addAdminSchema = z.object({
     .string()
     .min(1, "Email is required")
     .email("Enter a valid email address"),
-  city: z.string().min(1, "City is required"),
+  city: z
+    .string()
+    .min(1, "City is required")
+    .min(2, "City name must be at least 2 characters"),
   subDomain: z
     .string()
     .optional()
     .refine(
-      (val) => !val || /^[a-z0-9-]+$/.test(val),
-      "Sub-domain can only contain lowercase letters, numbers, and hyphens"
+      (val) => !val || /^[a-z0-9-]+(\.[a-z0-9-]+)*$/i.test(val),
+      "Enter a valid sub-domain (e.g. domain.ticketingsolution.in)"
     ),
   renewalAmount: z
-    .number({ message: "Renewal amount must be a number" })
-    .min(1000, "Minimum renewal amount is ₹1,000")
-    .max(10000000, "Amount seems too large"),
+    .number({ message: "Renewal amount is required" }),
   rolesAccess: z.array(z.string()),
   joinedDate: z.string().optional(),
   nextRenewalDate: z.string().optional(),
+  status: z.enum(["Active", "Inactive"]),
 });
 
 export type AddAdminFormData = z.infer<typeof addAdminSchema>;

@@ -72,7 +72,6 @@ const inputStyle = (hasError: boolean): React.CSSProperties => ({
 const ALL_ROLES: string[] = [
   "Complimentary Management",
   "Customer Management",
-  "Seat Management",
   "CCTV Monitoring",
 ];
 
@@ -384,14 +383,18 @@ export default function AdminPage() {
     formState: { errors },
   } = useForm<AddAdminFormData>({
     resolver: zodResolver(addAdminSchema),
+    mode: "onChange",
     defaultValues: {
       name: "",
       phone: "",
       email: "",
-      city: "Jaipur",
+      city: "",
       subDomain: "",
-      renewalAmount: 50000,
+      renewalAmount: undefined as unknown as number,
       rolesAccess: [],
+      joinedDate: getTodayDateStr(),
+      nextRenewalDate: calculateNextRenewalDate(getTodayDateStr()),
+      status: "Active",
     },
   });
 
@@ -400,6 +403,18 @@ export default function AdminPage() {
     control,
     name: "rolesAccess",
     defaultValue: [],
+  });
+
+  const watchedJoinedDate = useWatch({
+    control,
+    name: "joinedDate",
+    defaultValue: getTodayDateStr(),
+  });
+
+  const watchedStatus = useWatch({
+    control,
+    name: "status",
+    defaultValue: "Active",
   });
 
   // Filtered Admins by search and city
@@ -430,6 +445,14 @@ export default function AdminPage() {
     const nextRenewal =
       data.nextRenewalDate || calculateNextRenewalDate(joined);
 
+    const formattedSubdomain = data.subDomain?.trim()
+      ? (data.subDomain.includes(".")
+        ? data.subDomain.trim()
+        : `${data.subDomain.trim()}.ticketingsolution.in`)
+      : `${data.name.toLowerCase().replace(/\s+/g, "")}.ticketingsolution.in`;
+
+    const statusApi = data.status === "Inactive" ? "INACTIVE" : "ACTIVE";
+
     try {
       setIsSaving(true);
 
@@ -443,13 +466,11 @@ export default function AdminPage() {
           phone: data.phone.trim(),
           email: data.email.trim().toLowerCase(),
           city: data.city.trim(),
-          subdomain:
-            data.subDomain?.trim() ||
-            `${data.name.toLowerCase().replace(/\s+/g, "")}.ticketing.com`,
+          subdomain: formattedSubdomain,
           renewalAmount: String(data.renewalAmount),
           joinedAt: joined,
           nextRenewalDate: nextRenewal,
-          status: "ACTIVE",
+          status: statusApi,
         }),
       });
 
@@ -869,18 +890,7 @@ export default function AdminPage() {
                 >
                   {selectedAdmin.name}
                 </h1>
-                <span
-                  style={{
-                    background: "rgba(35, 114, 165, 0.1)",
-                    color: colors.brand.accent,
-                    padding: "2px 8px",
-                    borderRadius: "4px",
-                    fontSize: "12px",
-                    fontWeight: 700,
-                  }}
-                >
-                  {selectedAdmin.id}
-                </span>
+
                 <span
                   style={{
                     background: "rgba(34, 197, 94, 0.12)",
@@ -945,7 +955,7 @@ export default function AdminPage() {
                     boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
                   }}
                 >
-                  {isSaving ? "Creating..." : "Create Admin"}
+                  {isSaving ? "Saving..." : "Save Changes"}
                 </button>
               </>
             ) : (
@@ -1036,10 +1046,12 @@ export default function AdminPage() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Full Name
+                  Full Name{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
+                  placeholder="Enter full name"
                   value={selectedAdmin.name}
                   onChange={(e) =>
                     setSelectedAdmin({ ...selectedAdmin, name: e.target.value })
@@ -1049,25 +1061,18 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  City
+                  City{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
-                  list="admin-city-list"
-                  placeholder="Select or type city..."
+                  placeholder="Enter city"
                   value={selectedAdmin.city}
                   onChange={(e) =>
                     setSelectedAdmin({ ...selectedAdmin, city: e.target.value })
                   }
-                  style={{ ...inputStyle(false), background: "#FFFFFF" }}
+                  style={inputStyle(false)}
                 />
-                <datalist id="admin-city-list">
-                  <option value="Jaipur" />
-                  <option value="Udaipur" />
-                  <option value="Jodhpur" />
-                  <option value="Delhi" />
-                  <option value="Mumbai" />
-                </datalist>
               </div>
             </div>
 
@@ -1080,11 +1085,13 @@ export default function AdminPage() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Phone Number
+                  Phone Number{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
                   maxLength={10}
+                  placeholder="Enter phone number"
                   value={selectedAdmin.phone}
                   onKeyDown={(e) => {
                     if (
@@ -1107,10 +1114,12 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Email Address
+                  Email Address{" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="email"
+                  placeholder="Enter email address"
                   value={selectedAdmin.email}
                   onChange={(e) =>
                     setSelectedAdmin({
@@ -1136,6 +1145,7 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="text"
+                  placeholder="domain.ticketingsolution.in"
                   value={selectedAdmin.subDomain}
                   onChange={(e) =>
                     setSelectedAdmin({
@@ -1148,11 +1158,13 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Renewal Amount (₹)
+                  Renewal Amount (₹){" "}
+                  <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
-                  value={selectedAdmin.renewalAmount}
+                  placeholder="Enter renewal amount"
+                  value={selectedAdmin.renewalAmount || ""}
                   onChange={(e) =>
                     setSelectedAdmin({
                       ...selectedAdmin,
@@ -1200,14 +1212,79 @@ export default function AdminPage() {
                 <input
                   type="date"
                   value={selectedAdmin.nextRenewalDate || ""}
-                  onChange={(e) =>
+                  readOnly
+                  style={{
+                    ...inputStyle(false),
+                    background: "#F8FAFC",
+                    cursor: "not-allowed",
+                    color: colors.text.muted,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Status Toggle */}
+            <div>
+              <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                Status
+              </label>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  marginTop: "8px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
                     setSelectedAdmin({
                       ...selectedAdmin,
-                      nextRenewalDate: e.target.value,
+                      status: selectedAdmin.status === "Active" ? "Inactive" : "Active",
                     })
                   }
-                  style={inputStyle(false)}
-                />
+                  style={{
+                    position: "relative",
+                    width: "48px",
+                    height: "26px",
+                    borderRadius: "13px",
+                    border: "none",
+                    background:
+                      selectedAdmin.status === "Active" ? "#22C55E" : "#D1D5DB",
+                    cursor: "pointer",
+                    transition: "background 0.2s",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "3px",
+                      left:
+                        selectedAdmin.status === "Active" ? "25px" : "3px",
+                      width: "20px",
+                      height: "20px",
+                      borderRadius: "50%",
+                      background: "#FFFFFF",
+                      boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+                      transition: "left 0.2s",
+                    }}
+                  />
+                </button>
+                <span
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color:
+                      selectedAdmin.status === "Active"
+                        ? "#22C55E"
+                        : colors.text.muted,
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
+                  {selectedAdmin.status === "Active" ? "Active" : "Inactive"}
+                </span>
               </div>
             </div>
 
@@ -1955,9 +2032,8 @@ export default function AdminPage() {
         data={filteredAdmins}
         keyExtractor={(a) => a.id}
         pageSize={5}
-        emptyMessage={
-          isLoadingAdmins ? "Loading admins..." : "No admin records found."
-        }
+        isLoading={isLoadingAdmins}
+        emptyMessage="No admin records found."
       />
 
       {/* ── Add Admin Modal ── */}
@@ -2075,7 +2151,7 @@ export default function AdminPage() {
                   <input
                     type="text"
                     maxLength={10}
-                    placeholder="9876543210"
+                    placeholder="Enter phone number"
                     {...register("phone")}
                     onKeyDown={(e) => {
                       if (
@@ -2113,21 +2189,10 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="text"
-                    list="admin-add-city-list"
-                    placeholder="Select or type city..."
+                    placeholder="Enter city"
                     {...register("city")}
-                    style={{
-                      ...inputStyle(!!errors.city),
-                      background: "#FFFFFF",
-                    }}
+                    style={inputStyle(!!errors.city)}
                   />
-                  <datalist id="admin-add-city-list">
-                    <option value="Jaipur" />
-                    <option value="Udaipur" />
-                    <option value="Jodhpur" />
-                    <option value="Delhi" />
-                    <option value="Mumbai" />
-                  </datalist>
                   <FieldError message={errors.city?.message} />
                 </div>
               </div>
@@ -2146,7 +2211,7 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="email"
-                  placeholder="admin@business.com"
+                  placeholder="Enter email address"
                   {...register("email")}
                   style={inputStyle(!!errors.email)}
                 />
@@ -2174,7 +2239,7 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="domain.ticketing.com"
+                    placeholder="domain.ticketingsolution.in"
                     {...register("subDomain")}
                     style={inputStyle(!!errors.subDomain)}
                   />
@@ -2196,12 +2261,16 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="50000"
+                    placeholder="Enter renewal amount"
                     {...register("renewalAmount", { valueAsNumber: true })}
                     onInput={(e) => {
                       const val = e.currentTarget.value.replace(/\D/g, "");
                       e.currentTarget.value = val;
-                      setValue("renewalAmount", Number(val) || 0);
+                      setValue(
+                        "renewalAmount",
+                        val ? Number(val) : (undefined as unknown as number),
+                        { shouldValidate: true },
+                      );
                     }}
                     style={inputStyle(!!errors.renewalAmount)}
                   />
@@ -2209,7 +2278,7 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Joined Date & Next Renewal Date (Auto-filled & Read-Only during creation) */}
+              {/* Joined Date & Next Renewal Date */}
               <div
                 style={{
                   display: "grid",
@@ -2234,20 +2303,23 @@ export default function AdminPage() {
                         fontWeight: 400,
                       }}
                     >
-                      (Auto-filled)
+                      (Default Today)
                     </span>
                   </label>
                   <input
                     type="date"
-                    value={getTodayDateStr()}
-                    disabled
-                    readOnly
-                    style={{
-                      ...inputStyle(false),
-                      background: "#F1F5F9",
-                      color: colors.text.muted,
-                      cursor: "not-allowed",
+                    {...register("joinedDate")}
+                    defaultValue={getTodayDateStr()}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setValue("joinedDate", val, { shouldValidate: true });
+                      setValue(
+                        "nextRenewalDate",
+                        calculateNextRenewalDate(val),
+                        { shouldValidate: true },
+                      );
                     }}
+                    style={inputStyle(false)}
                   />
                 </div>
 
@@ -2273,7 +2345,9 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="date"
-                    value={calculateNextRenewalDate(getTodayDateStr())}
+                    value={calculateNextRenewalDate(
+                      watchedJoinedDate || getTodayDateStr(),
+                    )}
                     disabled
                     readOnly
                     style={{
@@ -2283,6 +2357,96 @@ export default function AdminPage() {
                       cursor: "not-allowed",
                     }}
                   />
+                </div>
+              </div>
+
+              {/* Status Toggle (Active / Inactive) */}
+              <div>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: colors.text.primary,
+                    fontFamily: typography.fontFamily.sans,
+                    display: "block",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Admin Status
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    background: "#F8FAFC",
+                    padding: "10px 14px",
+                    borderRadius: "8px",
+                    border: `1px solid ${colors.header.border}`,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextStatus =
+                        watchedStatus === "Active" ? "Inactive" : "Active";
+                      setValue("status", nextStatus, {
+                        shouldValidate: true,
+                      });
+                    }}
+                    style={{
+                      position: "relative",
+                      width: "48px",
+                      height: "26px",
+                      background:
+                        watchedStatus === "Active" ? "#16A34A" : "#94A3B8",
+                      borderRadius: "20px",
+                      border: "none",
+                      cursor: "pointer",
+                      transition: "background 0.2s ease",
+                      padding: "2px",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        background: "#FFFFFF",
+                        borderRadius: "50%",
+                        boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                        transform:
+                          watchedStatus === "Active"
+                            ? "translateX(22px)"
+                            : "translateX(0px)",
+                        transition: "transform 0.2s ease",
+                      }}
+                    />
+                  </button>
+                  <span
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color:
+                        watchedStatus === "Active" ? "#16A34A" : "#64748B",
+                      fontFamily: typography.fontFamily.sans,
+                    }}
+                  >
+                    {watchedStatus === "Active" ? "Active" : "Inactive"}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: colors.text.muted,
+                      fontFamily: typography.fontFamily.sans,
+                      marginLeft: "auto",
+                    }}
+                  >
+                    {watchedStatus === "Active"
+                      ? "Active status on creation"
+                      : "Inactive status on creation"}
+                  </span>
                 </div>
               </div>
 

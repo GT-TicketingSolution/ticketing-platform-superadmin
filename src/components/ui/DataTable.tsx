@@ -18,6 +18,7 @@ interface DataTableProps<T> {
   keyExtractor: (row: T) => string;
   pageSize?: number;
   emptyMessage?: string;
+  isLoading?: boolean;
 }
 
 export function DataTable<T>({
@@ -26,6 +27,7 @@ export function DataTable<T>({
   keyExtractor,
   pageSize = 5,
   emptyMessage = "No records found.",
+  isLoading = false,
 }: DataTableProps<T>) {
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -89,7 +91,44 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {data.length === 0 ? (
+            {isLoading ? (
+              Array.from({ length: pageSize }).map((_, rIdx) => (
+                <tr
+                  key={rIdx}
+                  style={{
+                    borderBottom: `1px solid ${colors.header.border}`,
+                  }}
+                >
+                  <td style={{ padding: "16px", textAlign: "center" }}>
+                    <div
+                      style={{
+                        width: "24px",
+                        height: "14px",
+                        borderRadius: "4px",
+                        background: "linear-gradient(90deg, #f0f4f8 25%, #e2e8f0 50%, #f0f4f8 75%)",
+                        backgroundSize: "200% 100%",
+                        animation: "shimmer 1.5s infinite",
+                        margin: "0 auto",
+                      }}
+                    />
+                  </td>
+                  {columns.map((col, cIdx) => (
+                    <td key={cIdx} style={{ padding: "16px 20px" }}>
+                      <div
+                        style={{
+                          width: cIdx === 0 ? "130px" : cIdx % 2 === 0 ? "90px" : "110px",
+                          height: "14px",
+                          borderRadius: "4px",
+                          background: "linear-gradient(90deg, #f0f4f8 25%, #e2e8f0 50%, #f0f4f8 75%)",
+                          backgroundSize: "200% 100%",
+                          animation: "shimmer 1.5s infinite",
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : data.length === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length + 1}

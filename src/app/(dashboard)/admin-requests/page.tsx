@@ -118,30 +118,30 @@ const normalizeRequest = (
   request:
     | ApiAdminRequest
     | {
-        id: string;
-        requestNumber: string;
-        adminId: string;
-        name: string;
-        phone: string;
-        email: string;
-        desc: string;
-        notes: string;
-        status:
-          | "PENDING"
-          | "IN_PROGRESS"
-          | "ACCEPTED"
-          | "REJECTED"
-          | "CANCELLED"
-          | "Pending"
-          | "In-progress"
-          | "Accepted"
-          | "Rejected"
-          | "Canceled";
-        city: string;
-        createdDate: string;
-        createdAt?: string;
-        updatedAt?: string;
-      },
+      id: string;
+      requestNumber: string;
+      adminId: string;
+      name: string;
+      phone: string;
+      email: string;
+      desc: string;
+      notes: string;
+      status:
+      | "PENDING"
+      | "IN_PROGRESS"
+      | "ACCEPTED"
+      | "REJECTED"
+      | "CANCELLED"
+      | "Pending"
+      | "In-progress"
+      | "Accepted"
+      | "Rejected"
+      | "Canceled";
+      city: string;
+      createdDate: string;
+      createdAt?: string;
+      updatedAt?: string;
+    },
 ): PendingRequest => {
   let status: PendingRequest["status"];
 
@@ -1596,9 +1596,8 @@ export default function PendingRequestsPage() {
         data={filteredRequests}
         keyExtractor={(r) => r.id}
         pageSize={5}
-        emptyMessage={
-          isLoading ? "Loading admin requests..." : "No admin requests found."
-        }
+        isLoading={isLoading}
+        emptyMessage="No admin requests found."
       />
 
       {/* ── Add Request Modal ── */}
@@ -1713,7 +1712,7 @@ export default function PendingRequestsPage() {
                   <input
                     type="text"
                     maxLength={10}
-                    placeholder="9876543210"
+                    placeholder="Enter phone number"
                     {...register("phone")}
                     onKeyDown={(e) => {
                       if (
@@ -1749,7 +1748,7 @@ export default function PendingRequestsPage() {
                   </label>
                   <input
                     type="email"
-                    placeholder="admin@domain.com"
+                    placeholder="Enter email address"
                     {...register("email")}
                     style={inputStyle(!!errors.email)}
                   />
