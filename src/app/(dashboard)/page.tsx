@@ -919,7 +919,6 @@ export default function DashboardPage() {
                           color: colors.text.primary,
                         }}
                       >
-                        ₹
                         {admin.renewalAmount
                           ? `₹${Number(admin.renewalAmount).toLocaleString("en-IN")}`
                           : "-"}

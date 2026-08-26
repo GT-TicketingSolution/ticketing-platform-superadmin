@@ -393,7 +393,7 @@ export default function LoginPage() {
                     <input
                       id="emailOrUsername"
                       type="text"
-                      placeholder="admin@company.com"
+                      placeholder="Enter your email"
                       {...register("emailOrUsername")}
                       style={{
                         width: "100%",
@@ -578,6 +578,8 @@ export default function LoginPage() {
                     justifyContent: "center",
                     gap: "8px",
                     boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
+                    opacity: isSubmitting ? 0.7 : 1,
+                    pointerEvents: isSubmitting ? "none" : "auto",
                   }}
                   className="login-btn"
                 >
@@ -666,7 +668,7 @@ export default function LoginPage() {
                           color: colors.login.title,
                         }}
                       >
-                        Admin Email Address{" "}
+                        Email Address{" "}
                         <span style={{ color: "#EF4444" }}>*</span>
                       </label>
 
@@ -690,7 +692,7 @@ export default function LoginPage() {
                         <input
                           id="forgotEmail"
                           type="email"
-                          placeholder="admin@company.com"
+                          placeholder="Enter your email"
                           {...registerForgot("email")}
                           style={{
                             width: "100%",

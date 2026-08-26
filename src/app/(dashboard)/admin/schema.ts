@@ -4,7 +4,16 @@ export const addAdminSchema = z.object({
   name: z
     .string()
     .min(1, "Full name is required")
-    .min(3, "Name must be at least 3 characters"),
+    .min(3, "Name must be at least 3 characters")
+    .max(50, "Name must be at most 50 characters"),
+  businessName: z
+    .string()
+    .min(1, "Business name is required")
+    .max(50, "Business name must be at most 50 characters")
+    .regex(
+      /^[a-zA-Z0-9 ]+$/,
+      "Business name must contain only letters, numbers, and spaces"
+    ),
   phone: z
     .string()
     .min(1, "Phone number is required")
@@ -33,3 +42,4 @@ export const addAdminSchema = z.object({
 });
 
 export type AddAdminFormData = z.infer<typeof addAdminSchema>;
+
