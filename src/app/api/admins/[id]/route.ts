@@ -204,11 +204,11 @@ export async function PATCH(
     }
 
     if (body.email !== undefined) {
-      if (typeof body.email !== "string") {
+      if (typeof body.email !== "string" || !body.email.trim()) {
         return NextResponse.json(
           {
             success: false,
-            message: "Invalid email",
+            message: "Invalid email address",
           },
           { status: 400 },
         );
@@ -216,13 +216,13 @@ export async function PATCH(
 
       const email = body.email.trim().toLowerCase();
 
-      const emailRegex = /^[^\s@]+@ticketing\.com$/;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
       if (!emailRegex.test(email)) {
         return NextResponse.json(
           {
             success: false,
-            message: "Email must be a valid @ticketing.com address",
+            message: "Invalid email address",
           },
           { status: 400 },
         );

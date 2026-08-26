@@ -198,20 +198,16 @@ export async function POST(request: NextRequest) {
     /* Email Validation                                                        */
     /* ---------------------------------------------------------------------- */
 
+    /* ---------------------------------------------------------------------- */
+    /* Email Validation                                                       */
+    /* ---------------------------------------------------------------------- */
+
     const normalizedEmail = email.trim().toLowerCase();
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(normalizedEmail)) {
       return errorResponse("Invalid email address", 400);
-    }
-
-    /* ---------------------------------------------------------------------- */
-    /* Ticketing Email Domain Validation                                      */
-    /* ---------------------------------------------------------------------- */
-
-    if (!normalizedEmail.endsWith("@ticketing.com")) {
-      return errorResponse("Email must end with @ticketing.com", 400);
     }
 
     /* ---------------------------------------------------------------------- */
