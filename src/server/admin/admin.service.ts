@@ -17,15 +17,19 @@ export type CreateAdminInput = {
   subdomain?: string | null;
   renewalAmount: string;
   joinedAt?: Date;
-  nextRenewalDate: Date;
+
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
-export type UpdateAdminInput = Partial<
-  Omit<CreateAdminInput, "joinedAt" | "nextRenewalDate">
-> & {
+export type UpdateAdminInput = {
+  fullName?: string;
+  phone?: string;
+  city?: string;
+  email?: string;
+  subdomain?: string | null;
+  renewalAmount?: string;
   joinedAt?: Date;
-  nextRenewalDate?: Date;
+  status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };
 
 /* -------------------------------------------------------------------------- */
@@ -202,7 +206,16 @@ export async function getAdminById(id: string) {
     .where(eq(admins.id, id))
     .limit(1);
 
-  return result[0] ?? null;
+  const admin = result[0];
+
+  if (!admin) {
+    return null;
+  }
+
+  return {
+    ...admin,
+    nextRenewalDate: calculateNextRenewalDate(admin.joinedAt),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -372,6 +385,17 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
 /* Update Admin                                                               */
 /* -------------------------------------------------------------------------- */
 
+function calculateNextRenewalDate(joinedAt: Date | null) {
+  if (!joinedAt) {
+    return null;
+  }
+
+  const nextRenewalDate = new Date(joinedAt);
+  nextRenewalDate.setFullYear(nextRenewalDate.getFullYear() + 1);
+
+  return nextRenewalDate;
+}
+
 export async function updateAdmin(
   id: string,
   data: UpdateAdminInput,
@@ -410,13 +434,19 @@ export async function updateAdmin(
   }
 
   if (data.subdomain !== undefined) {
-    const subdomain = data.subdomain?.trim().toLowerCase() ?? null;
+    const value = data.subdomain?.trim().toLowerCase() ?? "";
 
-    if (subdomain && !subdomain.endsWith(".ticketing.com")) {
-      throw new Error("Subdomain must end with .ticketing.com");
+    if (!value) {
+      updateData.subdomain = null;
+    } else {
+      if (!/^[a-z0-9-]+$/.test(value)) {
+        throw new Error(
+          "Subdomain can only contain lowercase letters, numbers, and hyphens",
+        );
+      }
+
+      updateData.subdomain = `${value}.ticketing.com`;
     }
-
-    updateData.subdomain = subdomain;
   }
 
   if (data.renewalAmount !== undefined) {
@@ -426,11 +456,6 @@ export async function updateAdmin(
   if (data.joinedAt !== undefined) {
     updateData.joinedAt = data.joinedAt;
   }
-
-  if (data.nextRenewalDate !== undefined) {
-    updateData.nextRenewalDate = data.nextRenewalDate;
-  }
-
   if (data.status !== undefined) {
     updateData.status = data.status;
   }

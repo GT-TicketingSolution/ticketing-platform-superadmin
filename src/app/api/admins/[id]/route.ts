@@ -4,6 +4,7 @@ import {
   getAdminById,
   updateAdmin,
   deleteAdmin,
+  type UpdateAdminInput,
 } from "@/server/admin/admin.service";
 
 import { getCurrentUser } from "@/server/auth/auth.service";
@@ -157,7 +158,6 @@ export async function PATCH(
       subdomain?: string | null;
       renewalAmount?: string;
       joinedAt?: Date;
-      nextRenewalDate?: Date;
       status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
     } = {};
 
@@ -216,13 +216,13 @@ export async function PATCH(
 
       const email = body.email.trim().toLowerCase();
 
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const emailRegex = /^[^\s@]+@ticketing\.com$/;
 
       if (!emailRegex.test(email)) {
         return NextResponse.json(
           {
             success: false,
-            message: "Invalid email address",
+            message: "Email must be a valid @ticketing.com address",
           },
           { status: 400 },
         );
@@ -242,8 +242,26 @@ export async function PATCH(
         );
       }
 
-      updateData.subdomain =
-        body.subdomain === null ? null : body.subdomain.trim().toLowerCase();
+      if (body.subdomain === null) {
+        updateData.subdomain = null;
+      } else {
+        const normalizedSubdomain = body.subdomain.trim().toLowerCase();
+
+        if (!normalizedSubdomain) {
+          updateData.subdomain = null;
+        } else if (!/^[a-z0-9-]+$/.test(normalizedSubdomain)) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                "Subdomain can only contain lowercase letters, numbers, and hyphens",
+            },
+            { status: 400 },
+          );
+        } else {
+          updateData.subdomain = normalizedSubdomain;
+        }
+      }
     }
 
     if (body.renewalAmount !== undefined) {
@@ -276,22 +294,6 @@ export async function PATCH(
       }
 
       updateData.joinedAt = joinedAt;
-    }
-
-    if (body.nextRenewalDate !== undefined) {
-      const nextRenewalDate = new Date(body.nextRenewalDate);
-
-      if (Number.isNaN(nextRenewalDate.getTime())) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Invalid next renewal date",
-          },
-          { status: 400 },
-        );
-      }
-
-      updateData.nextRenewalDate = nextRenewalDate;
     }
 
     if (body.status !== undefined) {
