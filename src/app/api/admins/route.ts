@@ -504,50 +504,24 @@ export async function GET(request: NextRequest) {
     /* Date Filters                                                            */
     /* ---------------------------------------------------------------------- */
 
-    const dateFromParam = searchParams.get("dateFrom");
-    const dateToParam = searchParams.get("dateTo");
-
-    let dateFrom: Date | undefined;
-    let dateTo: Date | undefined;
-
     /* ---------------------------------------------------------------------- */
-    /* Date From Validation                                                    */
+    /* Joined Date Filter                                                     */
     /* ---------------------------------------------------------------------- */
 
-    if (dateFromParam !== null) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFromParam)) {
-        return errorResponse("Invalid dateFrom. Use YYYY-MM-DD format.", 400);
+    const joinedDateParam = searchParams.get("joinedDate");
+
+    let joinedDate: Date | undefined;
+
+    if (joinedDateParam !== null) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(joinedDateParam)) {
+        return errorResponse("Invalid joinedDate. Use YYYY-MM-DD format.", 400);
       }
 
-      dateFrom = new Date(`${dateFromParam}T00:00:00.000Z`);
+      joinedDate = new Date(`${joinedDateParam}T00:00:00.000Z`);
 
-      if (Number.isNaN(dateFrom.getTime())) {
-        return errorResponse("Invalid dateFrom. Use YYYY-MM-DD format.", 400);
+      if (Number.isNaN(joinedDate.getTime())) {
+        return errorResponse("Invalid joinedDate. Use YYYY-MM-DD format.", 400);
       }
-    }
-
-    /* ---------------------------------------------------------------------- */
-    /* Date To Validation                                                      */
-    /* ---------------------------------------------------------------------- */
-
-    if (dateToParam !== null) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateToParam)) {
-        return errorResponse("Invalid dateTo. Use YYYY-MM-DD format.", 400);
-      }
-
-      dateTo = new Date(`${dateToParam}T23:59:59.999Z`);
-
-      if (Number.isNaN(dateTo.getTime())) {
-        return errorResponse("Invalid dateTo. Use YYYY-MM-DD format.", 400);
-      }
-    }
-
-    /* ---------------------------------------------------------------------- */
-    /* Date Range Validation                                                   */
-    /* ---------------------------------------------------------------------- */
-
-    if (dateFrom && dateTo && dateFrom > dateTo) {
-      return errorResponse("dateFrom cannot be greater than dateTo.", 400);
     }
 
     /* ---------------------------------------------------------------------- */
@@ -582,8 +556,7 @@ export async function GET(request: NextRequest) {
       limit,
       search,
       city,
-      dateFrom,
-      dateTo,
+      joinedDate,
       status,
     });
 

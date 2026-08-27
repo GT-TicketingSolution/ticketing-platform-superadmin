@@ -1,8 +1,8 @@
-import { desc, eq, count, ilike, or, and } from "drizzle-orm";
+import { desc, eq, count, ilike, or, and, gte, lt } from "drizzle-orm";
 
 import { db } from "@/server/db";
 
-import { adminRequests, admins } from "@/server/db/schema";
+import { adminRequests, admins, adminRequestNotes } from "@/server/db/schema";
 
 import {
   notifyAdminRequestInProgress,
@@ -40,6 +40,8 @@ export type UpdateAdminRequestInput = {
   phone?: string;
   email?: string;
   city?: string;
+
+  note?: string;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -87,6 +89,7 @@ export type GetAdminRequestsInput = {
   status?: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REJECTED" | "CANCELLED";
   adminId?: string;
   city?: string;
+  createdAt?: string;
 };
 
 export async function getAdminRequests({
@@ -96,6 +99,7 @@ export async function getAdminRequests({
   status,
   adminId,
   city,
+  createdAt,
 }: GetAdminRequestsInput = {}) {
   const offset = (page - 1) * limit;
 
@@ -134,6 +138,23 @@ export async function getAdminRequests({
 
   if (city?.trim()) {
     conditions.push(ilike(adminRequests.city, city.trim()));
+  }
+
+  if (createdAt?.trim()) {
+    const startDate = new Date(`${createdAt}T00:00:00`);
+    const endDate = new Date(`${createdAt}T23:59:59.999`);
+
+    if (!Number.isNaN(startDate.getTime())) {
+      conditions.push(
+        and(
+          gte(adminRequests.createdAt, startDate),
+          lt(
+            adminRequests.createdAt,
+            new Date(startDate.getTime() + 24 * 60 * 60 * 1000),
+          ),
+        ),
+      );
+    }
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -270,6 +291,8 @@ export async function getAdminRequestById(id: string) {
     return null;
   }
 
+  const notesHistory = await getAdminRequestNotes(request.id);
+
   return {
     id: request.id,
     requestNumber: request.requestNumber,
@@ -282,6 +305,8 @@ export async function getAdminRequestById(id: string) {
 
     desc: request.description,
     notes: request.internalNotes ?? "",
+
+    notesHistory,
 
     status:
       request.status === "PENDING"
@@ -752,4 +777,49 @@ export async function findAdminForRequest({
   }
 
   return null;
+}
+
+async function getAdminRequestNotes(adminRequestId: string) {
+  return await db
+    .select({
+      id: adminRequestNotes.id,
+      note: adminRequestNotes.note,
+      createdAt: adminRequestNotes.createdAt,
+
+      actorId: admins.id,
+      actorName: admins.fullName,
+    })
+    .from(adminRequestNotes)
+    .leftJoin(admins, eq(adminRequestNotes.createdBy, admins.id))
+    .where(eq(adminRequestNotes.adminRequestId, adminRequestId))
+    .orderBy(desc(adminRequestNotes.createdAt));
+}
+
+export async function addAdminRequestNote(
+  adminRequestId: string,
+  note: string,
+  actorId: string,
+) {
+  const trimmedNote = note.trim();
+
+  if (!trimmedNote) {
+    throw new Error("Note cannot be empty");
+  }
+
+  const request = await getAdminRequestById(adminRequestId);
+
+  if (!request) {
+    return null;
+  }
+
+  const result = await db
+    .insert(adminRequestNotes)
+    .values({
+      adminRequestId,
+      createdBy: actorId,
+      note: trimmedNote,
+    })
+    .returning();
+
+  return result[0] ?? null;
 }
