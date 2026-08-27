@@ -25,7 +25,7 @@ import {
 type EarningsData = {
   yearly: {
     year: number;
-    amount: string;
+    amount: number | string;
   }[];
 
   monthly: {
@@ -33,13 +33,13 @@ type EarningsData = {
     data: {
       month: number;
       monthName: string;
-      amount: string;
+      amount: number | string;
     }[];
   };
 
   highestAnnualRevenue: {
     year: number;
-    amount: string;
+    amount: number | string;
   } | null;
 
   growthRate: number;
@@ -47,7 +47,7 @@ type EarningsData = {
 
 type CityRevenue = {
   city: string;
-  amount: string;
+  amount: number | string;
 };
 
 interface DashboardChartsProps {
@@ -199,7 +199,7 @@ export default function DashboardCharts({
                   transition: "all 0.18s ease",
                 }}
               >
-                2026 Monthly
+                {earnings?.monthly?.year ?? new Date().getFullYear()} Monthly
               </button>
             </div>
           </div>
@@ -295,6 +295,8 @@ export default function DashboardCharts({
                 <BarChart
                   data={annualEarningsData}
                   margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                  barSize={50}
+                  barCategoryGap="45%"
                 >
                   <CartesianGrid
                     strokeDasharray="3 3"
@@ -357,6 +359,8 @@ export default function DashboardCharts({
                 <BarChart
                   data={monthlyRevenueData}
                   margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                  barSize={22}
+                  barCategoryGap="35%"
                 >
                   <CartesianGrid
                     strokeDasharray="3 3"

@@ -32,13 +32,13 @@ type RenewalsApiResponse = {
     status: "PENDING" | "PAID" | "CANCELLED";
     paymentDate: string | null;
     paymentMethod:
-      | "CASH"
-      | "BANK_TRANSFER"
-      | "UPI"
-      | "CARD"
-      | "ONLINE"
-      | "OTHER"
-      | null;
+    | "CASH"
+    | "BANK_TRANSFER"
+    | "UPI"
+    | "CARD"
+    | "ONLINE"
+    | "OTHER"
+    | null;
     transactionReference: string | null;
     paymentStatus: "PENDING" | "SUCCESS" | "FAILED" | "REFUNDED" | null;
     createdAt: string;
@@ -238,9 +238,9 @@ export default function RenewalPage() {
         current.map((r) =>
           r.id === id
             ? {
-                ...r,
-                lastNotificationSent: now,
-              }
+              ...r,
+              lastNotificationSent: now,
+            }
             : r,
         ),
       );
@@ -425,7 +425,7 @@ export default function RenewalPage() {
           <Search size={18} color={colors.text.muted} />
           <input
             type="text"
-            placeholder="Search admin name, city..."
+            placeholder="Search admin name"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{

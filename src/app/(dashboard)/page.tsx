@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Users,
@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   ShieldCheck,
   CheckCircle2,
+  X,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { exportMultiSectionXLS, XLSSection } from "@/lib/exportUtils";
@@ -29,7 +30,7 @@ type DashboardAdmin = {
   subdomain: string | null;
   joinedDate: string;
   nextRenewal: string | null;
-  renewalAmount: string | null;
+  renewalAmount: number | string | null;
 };
 
 type DashboardData = {
@@ -38,13 +39,13 @@ type DashboardData = {
     activeAdmins: number;
     pendingRequests: number;
     upcomingRenewals: number;
-    totalEarnings: string;
+    totalEarnings: number | string;
   };
 
   earnings: {
     yearly: {
       year: number;
-      amount: string;
+      amount: number | string;
     }[];
 
     monthly: {
@@ -52,13 +53,13 @@ type DashboardData = {
       data: {
         month: number;
         monthName: string;
-        amount: string;
+        amount: number | string;
       }[];
     };
 
     highestAnnualRevenue: {
       year: number;
-      amount: string;
+      amount: number | string;
     } | null;
 
     growthRate: number;
@@ -66,7 +67,7 @@ type DashboardData = {
 
   cityRevenue: {
     city: string;
-    amount: string;
+    amount: number | string;
   }[];
 
   activeAdmins: DashboardAdmin[];
@@ -99,6 +100,11 @@ type UpcomingRenewalsData = {
   }[];
 };
 
+// ── Helper: get today as YYYY-MM-DD
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
 
@@ -109,64 +115,84 @@ export default function DashboardPage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  // Filters State
+  const [selectedCity, setSelectedCity] = useState<string>("All");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
 
-        const [dashboardResponse, renewalsResponse] = await Promise.all([
-          fetch("/api/dashboard", {
-            method: "GET",
-            credentials: "include",
-          }),
+  const fetchDashboard = useCallback(async () => {
+    // Only proceed if date range is complete (both from and to, or neither)
+    const hasPartialDateRange = Boolean((fromDate && !toDate) || (!fromDate && toDate));
+    if (hasPartialDateRange) {
+      return;
+    }
 
-          fetch("/api/dashboard/upcoming-renewals?days=15", {
-            method: "GET",
-            credentials: "include",
-          }),
-        ]);
+    try {
+      setLoading(true);
+      setError(null);
 
-        const dashboardResult = await dashboardResponse.json();
-
-        const renewalsResult = await renewalsResponse.json();
-
-        if (!dashboardResponse.ok || !dashboardResult.success) {
-          throw new Error(
-            dashboardResult.message || "Failed to fetch dashboard data",
-          );
-        }
-
-        if (!renewalsResponse.ok || !renewalsResult.success) {
-          throw new Error(
-            renewalsResult.message || "Failed to fetch upcoming renewals",
-          );
-        }
-
-        setDashboard(dashboardResult.data);
-
-        setUpcomingRenewals(renewalsResult.data);
-      } catch (error) {
-        console.error("DASHBOARD_FETCH_ERROR:", error);
-
-        setError(
-          error instanceof Error ? error.message : "Failed to load dashboard",
-        );
-      } finally {
-        setLoading(false);
+      // Build query params for /api/dashboard
+      const params = new URLSearchParams();
+      params.set("year", String(new Date().getFullYear()));
+      if (selectedCity && selectedCity !== "All") params.set("city", selectedCity);
+      if (fromDate && toDate) {
+        params.set("from", fromDate);
+        params.set("to", toDate);
       }
-    };
 
+      const [dashboardResponse, renewalsResponse] = await Promise.all([
+        fetch(`/api/dashboard?${params.toString()}`, {
+          method: "GET",
+          credentials: "include",
+        }),
+
+        fetch("/api/dashboard/upcoming-renewals?days=365", {
+          method: "GET",
+          credentials: "include",
+        }),
+      ]);
+
+      const dashboardResult = await dashboardResponse.json();
+
+      const renewalsResult = await renewalsResponse.json();
+
+      if (!dashboardResponse.ok || !dashboardResult.success) {
+        throw new Error(
+          dashboardResult.message || "Failed to fetch dashboard data",
+        );
+      }
+
+      if (!renewalsResponse.ok || !renewalsResult.success) {
+        throw new Error(
+          renewalsResult.message || "Failed to fetch upcoming renewals",
+        );
+      }
+
+      setDashboard(dashboardResult.data);
+
+      setUpcomingRenewals(renewalsResult.data);
+    } catch (error) {
+      console.error("DASHBOARD_FETCH_ERROR:", error);
+
+      setError(
+        error instanceof Error ? error.message : "Failed to load dashboard",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCity, fromDate, toDate]);
+
+  useEffect(() => {
+    // When only from date is selected, do not hit the API until to date is also selected
+    if ((fromDate && !toDate) || (!fromDate && toDate)) {
+      return;
+    }
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard, fromDate, toDate]);
 
   // API data
   const admins = dashboard?.activeAdmins ?? [];
   const renewals = upcomingRenewals?.renewals ?? [];
-
-  // Filters State
-  const [selectedCity, setSelectedCity] = useState<string>("All");
-  const [selectedDateRange, setSelectedDateRange] = useState<string>("all");
 
   const cities = useMemo(() => {
     const set = new Set<string>();
@@ -193,12 +219,127 @@ export default function DashboardPage() {
 
   const pendingRequestsCount = dashboard?.stats.pendingRequests ?? 0;
 
-  const upcomingRenewalsCount = upcomingRenewals?.summary.total ?? 0;
+  const upcomingRenewalsCount =
+    dashboard?.stats.upcomingRenewals ?? upcomingRenewals?.summary.total ?? 0;
 
   const totalEarnings = Number(dashboard?.stats.totalEarnings ?? 0);
 
-  // Handle Export XLS (Exports full platform dashboard data: Stats + Admins + Pending Requests + Renewals)
+  // Handle Export XLS (Exports full platform dashboard data: Stats + Admins + Renewals)
   const handleExportXLS = () => {
+    // Build comprehensive list of all upcoming renewals
+    const seenAdminIds = new Set<string>();
+    const allUpcomingRenewalsRows: (string | number)[][] = [];
+
+    // 1. Add all structured renewals from the renewals API endpoint
+    filteredRenewals.forEach((r) => {
+      seenAdminIds.add(r.adminId);
+      const dueDate = new Date(r.dueDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      dueDate.setHours(0, 0, 0, 0);
+      const daysRemaining = Math.ceil(
+        (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+      );
+      let statusLabel = r.status;
+      if (daysRemaining < 0) statusLabel = "Overdue";
+      else if (daysRemaining <= 30) statusLabel = "Due Soon";
+      else statusLabel = "Upcoming";
+
+      allUpcomingRenewalsRows.push([
+        r.id,
+        r.adminName,
+        r.adminEmail,
+        r.adminPhone,
+        r.city,
+        dueDate.toLocaleDateString("en-IN"),
+        `₹${Number(r.amount).toLocaleString("en-IN")}`,
+        statusLabel,
+        r.paymentStatus ?? "PENDING",
+      ]);
+    });
+
+    // 2. Add upcoming renewals for all active admins with a nextRenewal date
+    filteredAdmins.forEach((a) => {
+      if (!seenAdminIds.has(a.id) && a.nextRenewal) {
+        seenAdminIds.add(a.id);
+        const dueDate = new Date(a.nextRenewal);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        dueDate.setHours(0, 0, 0, 0);
+        const daysRemaining = Math.ceil(
+          (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+        );
+        let statusLabel = "Upcoming";
+        if (daysRemaining < 0) statusLabel = "Overdue";
+        else if (daysRemaining <= 30) statusLabel = "Due Soon";
+
+        allUpcomingRenewalsRows.push([
+          `REN-${a.id.slice(0, 8).toUpperCase()}`,
+          a.name,
+          a.email,
+          a.phone,
+          a.city,
+          dueDate.toLocaleDateString("en-IN"),
+          a.renewalAmount
+            ? `₹${Number(a.renewalAmount).toLocaleString("en-IN")}`
+            : "₹0",
+          statusLabel,
+          daysRemaining < 0 ? "OVERDUE" : "PENDING",
+        ]);
+      }
+    });
+
+    // 3. Build Past Years Annual & Monthly Earnings rows
+    const yearlyEarningsRows: (string | number)[][] = (
+      dashboard?.earnings?.yearly ?? []
+    ).map((y) => [
+      String(y.year),
+      `₹${Number(y.amount).toLocaleString("en-IN")}`,
+      dashboard?.earnings?.highestAnnualRevenue?.year === y.year
+        ? "Highest Annual Revenue"
+        : "-",
+    ]);
+
+    const monthlyEarningsRows: (string | number)[][] = (
+      dashboard?.earnings?.monthly?.data ?? []
+    ).map((m) => [
+      `${m.monthName} ${dashboard?.earnings?.monthly?.year ?? new Date().getFullYear()}`,
+      `₹${Number(m.amount).toLocaleString("en-IN")}`,
+      `Month ${m.month}`,
+    ]);
+
+    // 4. Build City Revenue Share rows
+    const totalCityRev = (dashboard?.cityRevenue ?? []).reduce(
+      (acc, c) => acc + Number(c.amount),
+      0,
+    );
+
+    const cityRevenueRows: (string | number)[][] = (
+      dashboard?.cityRevenue ?? []
+    ).map((c) => {
+      const amt = Number(c.amount);
+      const percent =
+        totalCityRev > 0 ? `${((amt / totalCityRev) * 100).toFixed(2)}%` : "0%";
+      return [c.city, `₹${amt.toLocaleString("en-IN")}`, percent];
+    });
+
+    if (cityRevenueRows.length > 0) {
+      cityRevenueRows.push([
+        "Total (All Cities)",
+        `₹${totalCityRev.toLocaleString("en-IN")}`,
+        "100.00%",
+      ]);
+    }
+
+    const highestRevenueStr = dashboard?.earnings?.highestAnnualRevenue
+      ? `₹${Number(dashboard.earnings.highestAnnualRevenue.amount).toLocaleString("en-IN")} (${dashboard.earnings.highestAnnualRevenue.year})`
+      : "-";
+
+    const growthRateStr =
+      dashboard?.earnings?.growthRate !== undefined
+        ? `+${dashboard.earnings.growthRate}% Growth`
+        : "-";
+
     const sections: XLSSection[] = [
       {
         title: "1. PLATFORM SUMMARY METRICS",
@@ -211,12 +352,28 @@ export default function DashboardPage() {
             "Total Platform Revenue Dues",
             `₹${totalEarnings.toLocaleString("en-IN")}`,
           ],
+          ["Highest Annual Revenue", highestRevenueStr],
+          ["Growth Rate (YoY)", growthRateStr],
           ["Selected City Filter", selectedCity],
           ["Export Generated At", new Date().toLocaleString()],
         ],
       },
       {
-        title: "2. ACTIVE ADMINISTRATORS DIRECTORY",
+        title: "2. PAST YEARS ANNUAL EARNINGS BREAKDOWN",
+        headers: ["Period / Year", "Revenue Amount", "Notes / Highlight"],
+        rows: [
+          ...yearlyEarningsRows,
+          ["--", "--", "--"],
+          ...monthlyEarningsRows,
+        ],
+      },
+      {
+        title: "3. CITY REVENUE SHARE BREAKDOWN",
+        headers: ["City", "Revenue Amount", "Share of Total (%)"],
+        rows: cityRevenueRows,
+      },
+      {
+        title: "4. ACTIVE ADMINISTRATORS DIRECTORY",
         headers: [
           "Admin ID",
           "Admin Name",
@@ -248,10 +405,8 @@ export default function DashboardPage() {
           "ACTIVE",
         ]),
       },
-
       {
-        title: "4. SUBSCRIPTION & LICENSE RENEWALS TRACKER",
-
+        title: "5. SUBSCRIPTION & LICENSE RENEWALS TRACKER",
         headers: [
           "Renewal ID",
           "Admin Name",
@@ -263,18 +418,7 @@ export default function DashboardPage() {
           "Status",
           "Payment Status",
         ],
-
-        rows: filteredRenewals.map((r) => [
-          r.id,
-          r.adminName,
-          r.adminEmail,
-          r.adminPhone,
-          r.city,
-          new Date(r.dueDate).toLocaleDateString("en-IN"),
-          `₹${Number(r.amount).toLocaleString("en-IN")}`,
-          r.status,
-          r.paymentStatus,
-        ]),
+        rows: allUpcomingRenewalsRows,
       },
     ];
 
@@ -344,7 +488,7 @@ export default function DashboardPage() {
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            background: "#107C41", // Excel green accent
+            background: "#107C41",
             color: "#FFFFFF",
             border: "none",
             borderRadius: "8px",
@@ -355,6 +499,7 @@ export default function DashboardPage() {
             cursor: "pointer",
             boxShadow: "0 4px 12px rgba(16, 124, 65, 0.25)",
             transition: "all 0.18s ease",
+            whiteSpace: "nowrap",
           }}
         >
           <FileSpreadsheet size={18} />
@@ -367,82 +512,215 @@ export default function DashboardPage() {
         style={{
           background: "#FFFFFF",
           borderRadius: "12px",
-          padding: "16px 20px",
+          padding: "14px 20px",
           boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
           display: "flex",
           flexWrap: "wrap",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: "16px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Filter size={18} color={colors.brand.accent} />
-          <span
-            style={{
-              fontFamily: typography.fontFamily.sans,
-              fontWeight: typography.fontWeight.bold,
-              fontSize: "14px",
-              color: colors.text.primary,
-            }}
-          >
-            Filters:
-          </span>
+        {/* Left Side: Filter icon + City dropdown + Filter pills */}
+        <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Filter size={18} color={colors.brand.accent} />
+            <span
+              style={{
+                fontFamily: typography.fontFamily.sans,
+                fontWeight: typography.fontWeight.bold,
+                fontSize: "14px",
+                color: colors.text.primary,
+              }}
+            >
+              Filters:
+            </span>
+          </div>
+
+          {/* City Filter */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <Building2 size={16} color={colors.text.muted} />
+            <select
+              value={selectedCity}
+              onChange={(e) => setSelectedCity(e.target.value)}
+              style={{
+                height: "36px",
+                borderRadius: "8px",
+                border: `1px solid ${colors.header.border}`,
+                padding: "0 12px",
+                fontFamily: typography.fontFamily.sans,
+                fontSize: "13px",
+                color: colors.text.primary,
+                outline: "none",
+                cursor: "pointer",
+                background: "#FFFFFF",
+              }}
+            >
+              {cities.map((city) => (
+                <option key={city} value={city}>
+                  {city === "All" ? "All Cities" : city}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Active filter pills */}
+          {(selectedCity !== "All" || (fromDate && toDate)) && (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              {selectedCity !== "All" && (
+                <span
+                  style={{
+                    background: "rgba(35,114,165,0.1)",
+                    color: colors.brand.accent,
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    padding: "3px 10px",
+                    borderRadius: "20px",
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
+                  City: {selectedCity}
+                </span>
+              )}
+              {fromDate && toDate && (
+                <span
+                  style={{
+                    background: "rgba(244,188,67,0.15)",
+                    color: colors.sidebar.bg,
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    padding: "3px 10px",
+                    borderRadius: "20px",
+                    fontFamily: typography.fontFamily.sans,
+                  }}
+                >
+                  {fromDate} → {toDate}
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  setSelectedCity("All");
+                  setFromDate("");
+                  setToDate("");
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  color: colors.text.muted,
+                  fontFamily: typography.fontFamily.sans,
+                  textDecoration: "underline",
+                  padding: 0,
+                }}
+              >
+                Clear all
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Date Range Selector */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <Calendar size={16} color={colors.text.muted} />
-          <select
-            value={selectedDateRange}
-            onChange={(e) => setSelectedDateRange(e.target.value)}
+        {/* Right Side (End of Filters Card): Date Range Picker */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {loading && (
+            <span
+              style={{
+                fontSize: "12px",
+                color: colors.text.muted,
+                fontFamily: typography.fontFamily.sans,
+              }}
+            >
+              Updating...
+            </span>
+          )}
+
+          {/* Date Range Picker Component */}
+          <div
             style={{
-              height: "38px",
-              borderRadius: "8px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              background: "#F8FAFC",
               border: `1px solid ${colors.header.border}`,
-              padding: "0 12px",
-              fontFamily: typography.fontFamily.sans,
-              fontSize: "13px",
-              color: colors.text.primary,
-              outline: "none",
-              cursor: "pointer",
-              background: "#FFFFFF",
-            }}
-          >
-            <option value="all">All Time</option>
-            <option value="today">Today</option>
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-            <option value="year">This Year</option>
-          </select>
-        </div>
-
-        {/* City Filter */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <Building2 size={16} color={colors.text.muted} />
-          <select
-            value={selectedCity}
-            onChange={(e) => setSelectedCity(e.target.value)}
-            style={{
-              height: "38px",
               borderRadius: "8px",
-              border: `1px solid ${colors.header.border}`,
-              padding: "0 12px",
-              fontFamily: typography.fontFamily.sans,
-              fontSize: "13px",
-              color: colors.text.primary,
-              outline: "none",
-              cursor: "pointer",
-              background: "#FFFFFF",
+              padding: "5px 12px",
             }}
           >
-            {cities.map((city) => (
-              <option key={city} value={city}>
-                {city === "All" ? "All Cities" : city}
-              </option>
-            ))}
-          </select>
+            <Calendar size={15} color={colors.brand.accent} />
+            <span
+              style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                color: colors.text.muted,
+                fontFamily: typography.fontFamily.sans,
+                whiteSpace: "nowrap",
+              }}
+            >
+              From
+            </span>
+            <input
+              type="date"
+              value={fromDate}
+              max={toDate || todayStr()}
+              onChange={(e) => setFromDate(e.target.value)}
+              style={{
+                border: "none",
+                outline: "none",
+                fontSize: "13px",
+                color: colors.text.primary,
+                fontFamily: typography.fontFamily.sans,
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            />
+            <span
+              style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                color: colors.text.muted,
+                fontFamily: typography.fontFamily.sans,
+              }}
+            >
+              To
+            </span>
+            <input
+              type="date"
+              value={toDate}
+              min={fromDate || undefined}
+              max={todayStr()}
+              onChange={(e) => setToDate(e.target.value)}
+              style={{
+                border: "none",
+                outline: "none",
+                fontSize: "13px",
+                color: colors.text.primary,
+                fontFamily: typography.fontFamily.sans,
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            />
+            {(fromDate || toDate) && (
+              <button
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "2px",
+                  display: "flex",
+                  alignItems: "center",
+                  color: colors.text.muted,
+                }}
+                title="Clear date range"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
-
       </div>
 
       {/* ── Metric Stat Cards Grid ── */}

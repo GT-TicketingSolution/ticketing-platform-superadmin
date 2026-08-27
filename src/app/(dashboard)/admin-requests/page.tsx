@@ -81,15 +81,14 @@ const inputStyle = (hasError: boolean): React.CSSProperties => ({
 type ApiAdminRequest = {
   id: string;
   requestNumber: string;
-  adminId: string;
-  name: string;
+  adminId: string | null;
+  fullName: string;
   phone: string;
   email: string;
-  desc: string;
-  notes: string;
-  status: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REJECTED" | "CANCELLED";
   city: string;
-  createdDate: string;
+  description: string;
+  internalNotes: string | null;
+  status: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REJECTED" | "CANCELLED";
   createdAt: string;
   updatedAt: string;
 };
@@ -125,18 +124,20 @@ const statusToApi = (status: PendingRequest["status"]) => {
 };
 
 const normalizeRequest = (
-  request:
-    | ApiAdminRequest
-    | {
-      id: string;
-      requestNumber: string;
-      adminId: string;
-      name: string;
-      phone: string;
-      email: string;
-      desc: string;
-      notes: string;
-      status:
+  request: ApiAdminRequest | {
+    id: string;
+    requestNumber?: string;
+    adminId?: string | null;
+    fullName?: string;
+    name?: string;
+    phone: string;
+    email: string;
+    city: string;
+    description?: string;
+    desc?: string;
+    internalNotes?: string | null;
+    notes?: string | null;
+    status:
       | "PENDING"
       | "IN_PROGRESS"
       | "ACCEPTED"
@@ -147,11 +148,9 @@ const normalizeRequest = (
       | "Accepted"
       | "Rejected"
       | "Canceled";
-      city: string;
-      createdDate: string;
-      createdAt?: string;
-      updatedAt?: string;
-    },
+    createdAt?: string;
+    updatedAt?: string;
+  },
 ): PendingRequest => {
   let status: PendingRequest["status"];
 
@@ -180,16 +179,30 @@ const normalizeRequest = (
       status = "Pending";
   }
 
+  // Support both old (name/desc/notes) and new (fullName/description/internalNotes) field names
+  const name =
+    (request as { fullName?: string }).fullName ??
+    (request as { name?: string }).name ??
+    "";
+  const desc =
+    (request as { description?: string }).description ??
+    (request as { desc?: string }).desc ??
+    "";
+  const notes =
+    (request as { internalNotes?: string | null }).internalNotes ??
+    (request as { notes?: string | null }).notes ??
+    "";
+
   return {
     id: request.id,
-    name: request.name,
+    name,
     phone: request.phone ?? "",
     email: request.email ?? "",
-    desc: request.desc ?? "",
-    notes: request.notes ?? "",
+    desc,
+    notes: notes ?? "",
     status,
     city: request.city ?? "",
-    createdDate: request.createdDate,
+    createdDate: request.createdAt ?? "",
   };
 };
 
@@ -205,6 +218,12 @@ export default function PendingRequestsPage() {
     useState<string>("All");
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
+
+  // Server-side pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 5;
 
   // Read URL query parameter + set page title
   useEffect(() => {
@@ -222,14 +241,14 @@ export default function PendingRequestsPage() {
     }
   }, []);
 
-  const fetchRequests = async () => {
+  const fetchRequests = async (page = 1) => {
     try {
       setIsLoading(true);
 
       const params = new URLSearchParams();
 
-      params.set("page", "1");
-      params.set("limit", "100");
+      params.set("page", String(page));
+      params.set("limit", String(PAGE_SIZE));
 
       if (searchQuery.trim()) {
         params.set("search", searchQuery.trim());
@@ -263,6 +282,9 @@ export default function PendingRequestsPage() {
       }
 
       setRequests(result.data.map(normalizeRequest));
+      setCurrentPage(result.pagination?.page ?? page);
+      setTotalPages(result.pagination?.totalPages ?? 1);
+      setTotalCount(result.pagination?.total ?? result.data.length);
     } catch (error) {
       console.error("FETCH_ADMIN_REQUESTS_ERROR:", error);
 
@@ -273,7 +295,7 @@ export default function PendingRequestsPage() {
   };
 
   useEffect(() => {
-    fetchRequests();
+    fetchRequests(1);
   }, []);
 
   // Selected request for details view
@@ -282,29 +304,117 @@ export default function PendingRequestsPage() {
   );
   const [isEditing, setIsEditing] = useState(false);
   const [newNoteInput, setNewNoteInput] = useState("");
+  const [editingNoteIndex, setEditingNoteIndex] = useState<number | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState<string>("");
 
-  const handleAddDetailNote = () => {
+  // Helper to persist updated internal notes (full replacement) directly to backend
+  const saveNotesToApi = async (updatedNotes: string) => {
+    if (!selectedRequest) return false;
+    try {
+      setIsSaving(true);
+      const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          internalNotes: updatedNotes.trim() ? updatedNotes : null,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to update notes");
+      }
+      const updatedReq = { ...selectedRequest, notes: updatedNotes };
+      setSelectedRequest(updatedReq);
+      setRequests((prev) =>
+        prev.map((r) => (r.id === selectedRequest.id ? updatedReq : r)),
+      );
+
+      // Re-fetch fresh table list from backend
+      fetchRequests();
+
+      return true;
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to save note",
+        "error",
+      );
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Add a new note using the `note` field (API appends with timestamp server-side)
+  const handleAddDetailNote = async () => {
     if (!newNoteInput.trim() || !selectedRequest) return;
-    const now = new Date();
-    const formattedDate =
-      now.toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }) +
-      ", " +
-      now.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      }).toLowerCase();
+    try {
+      setIsSaving(true);
+      const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          note: newNoteInput.trim(),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to add note");
+      }
+      setNewNoteInput("");
+      showToast("Note added successfully!", "success");
+      // Re-fetch to get the updated notes list from backend
+      fetchRequests();
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to add note",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-    const newNoteLine = `[${formattedDate}] ${newNoteInput.trim()}`;
-    const updated = selectedRequest.notes
-      ? selectedRequest.notes + "\n" + newNoteLine
-      : newNoteLine;
-    setSelectedRequest({ ...selectedRequest, notes: updated });
-    setNewNoteInput("");
+  // Start editing a note
+  const handleStartEditNote = (idx: number, currentText: string) => {
+    setEditingNoteIndex(idx);
+    setEditingNoteText(currentText);
+  };
+
+  // Save an edited note
+  const handleSaveEditedNote = async (idx: number, origTime: string) => {
+    if (!selectedRequest || !editingNoteText.trim()) return;
+    const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
+    const updatedLine = origTime
+      ? `[${origTime}] ${editingNoteText.trim()}`
+      : editingNoteText.trim();
+    noteLines[idx] = updatedLine;
+    const updatedNotes = noteLines.join("\n");
+
+    const success = await saveNotesToApi(updatedNotes);
+    if (success) {
+      setEditingNoteIndex(null);
+      setEditingNoteText("");
+      showToast("Note updated successfully!", "success");
+    }
+  };
+
+  // Delete a specific note
+  const handleDeleteNote = async (idx: number) => {
+    if (!selectedRequest) return;
+    const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
+    noteLines.splice(idx, 1);
+    const updatedNotes = noteLines.join("\n");
+
+    const success = await saveNotesToApi(updatedNotes);
+    if (success) {
+      if (editingNoteIndex === idx) {
+        setEditingNoteIndex(null);
+        setEditingNoteText("");
+      }
+      showToast("Note deleted successfully!", "info");
+    }
   };
 
   // Modals state
@@ -370,23 +480,8 @@ export default function PendingRequestsPage() {
     );
   };
 
-  // Filter requests by status, city, date, and search
-  const filteredRequests = requests.filter((req) => {
-    const matchesStatus =
-      selectedStatusFilter === "All" || req.status === selectedStatusFilter;
-    const matchesCity =
-      selectedCityFilter === "All" || req.city === selectedCityFilter;
-    const matchesDate =
-      !selectedDateFilter ||
-      req.createdDate === selectedDateFilter ||
-      req.createdDate.startsWith(selectedDateFilter);
-    const matchesSearch =
-      req.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      req.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      req.phone.includes(searchQuery) ||
-      req.desc.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesCity && matchesDate && matchesSearch;
-  });
+  // Since filtering is handled server-side via API params, just use requests directly
+  const filteredRequests = requests;
 
   // Add request with confirm
   const onAddSubmit = async (data: AddRequestFormData) => {
@@ -395,59 +490,30 @@ export default function PendingRequestsPage() {
 
       /* -------------------------------------------------------------------- */
       /* Create Admin Request                                                 */
-      let createdRequest: PendingRequest;
-
-      try {
-        const response = await fetch(API_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            name: data.name.trim(),
-            phone: data.phone.trim(),
-            email: data.email.trim().toLowerCase(),
-            city: data.city || "Jaipur",
-            description: data.desc.trim(),
-            internalNotes: data.notes?.trim() || null,
-          }),
-        });
-
-        const result = await response.json();
-
-        if (response.ok && result.success && result.data) {
-          createdRequest = normalizeRequest(result.data);
-        } else {
-          createdRequest = {
-            id: `REQ-${Date.now()}`,
-            name: data.name.trim(),
-            phone: data.phone.trim(),
-            email: data.email.trim().toLowerCase(),
-            desc: data.desc.trim(),
-            notes: data.notes?.trim() || "",
-            status: "Pending",
-            city: data.city || "Jaipur",
-            createdDate: new Date().toISOString().slice(0, 10),
-          };
-        }
-      } catch {
-        createdRequest = {
-          id: `REQ-${Date.now()}`,
+      /* -------------------------------------------------------------------- */
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
           name: data.name.trim(),
           phone: data.phone.trim(),
           email: data.email.trim().toLowerCase(),
-          desc: data.desc.trim(),
-          notes: data.notes?.trim() || "",
-          status: "Pending",
           city: data.city || "Jaipur",
-          createdDate: new Date().toISOString().slice(0, 10),
-        };
+          description: data.desc.trim(),
+          internalNotes: data.notes?.trim() || null,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success || !result.data) {
+        throw new Error(result.message || "Failed to create admin request");
       }
 
-      /* -------------------------------------------------------------------- */
-      /* Update UI                                                            */
-      /* -------------------------------------------------------------------- */
+      const createdRequest = normalizeRequest(result.data);
 
       setRequests((prev) => [createdRequest, ...prev]);
 
@@ -458,6 +524,9 @@ export default function PendingRequestsPage() {
         "success",
       );
       setIsAddModalOpen(false);
+
+      // Re-fetch page 1 to show newest entry
+      fetchRequests(1);
     } catch (error) {
       console.error("CREATE_ADMIN_REQUEST_ERROR:", error);
 
@@ -519,6 +588,9 @@ export default function PendingRequestsPage() {
             : "info";
 
       showToast(`"${target.name}" status updated to ${newStatus}`, toastType);
+
+      // Re-fetch current page from backend
+      fetchRequests(currentPage);
     } catch (error) {
       console.error("UPDATE_REQUEST_STATUS_ERROR:", error);
 
@@ -547,8 +619,11 @@ export default function PendingRequestsPage() {
         },
         credentials: "include",
         body: JSON.stringify({
-          desc: selectedRequest.desc,
-          notes: selectedRequest.notes || null,
+          fullName: selectedRequest.name?.trim(),
+          phone: selectedRequest.phone?.trim(),
+          email: selectedRequest.email?.trim().toLowerCase(),
+          city: selectedRequest.city?.trim(),
+          description: selectedRequest.desc,
           status: statusToApi(selectedRequest.status),
         }),
       });
@@ -575,6 +650,9 @@ export default function PendingRequestsPage() {
         `Request "${updatedRequest.name}" updated successfully!`,
         "success",
       );
+
+      // Re-fetch current page from backend
+      fetchRequests(currentPage);
     } catch (error) {
       console.error("UPDATE_ADMIN_REQUEST_ERROR:", error);
 
@@ -626,6 +704,9 @@ export default function PendingRequestsPage() {
         `Request from "${target?.name ?? id}" has been deleted.`,
         "error",
       );
+
+      // Re-fetch current page; if we deleted the last item on this page, go back one
+      fetchRequests(currentPage);
     } catch (error) {
       console.error("DELETE_ADMIN_REQUEST_ERROR:", error);
 
@@ -1387,7 +1468,7 @@ export default function PendingRequestsPage() {
               {/* Notes list */}
               <div
                 style={{
-                  maxHeight: "180px",
+                  maxHeight: "220px",
                   overflowY: "auto",
                   display: "flex",
                   flexDirection: "column",
@@ -1403,13 +1484,16 @@ export default function PendingRequestsPage() {
                     .filter(Boolean)
                     .map((note, idx) => {
                       const { time, text } = parseNote(note);
+                      const isEditingThisNote = editingNoteIndex === idx;
+
                       return (
                         <div
                           key={idx}
                           style={{
                             display: "flex",
-                            alignItems: "flex-start",
-                            gap: "10px",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "12px",
                             padding: "10px 14px",
                             borderBottom:
                               idx <
@@ -1419,43 +1503,192 @@ export default function PendingRequestsPage() {
                                 1
                                 ? `1px solid ${colors.header.border}`
                                 : "none",
+                            background: isEditingThisNote
+                              ? "rgba(35, 114, 165, 0.05)"
+                              : "transparent",
                           }}
                         >
                           <div
                             style={{
-                              flexShrink: 0,
-                              marginTop: "2px",
-                              color: colors.brand.accent,
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              flex: 1,
                             }}
                           >
-                            <MessageSquare
-                              size={16}
-                              color={colors.brand.accent}
-                            />
-                          </div>
-                          <div>
                             <div
                               style={{
-                                fontSize: "14px",
-                                color: colors.text.primary,
-                                fontWeight: 500,
-                                fontFamily: typography.fontFamily.sans,
-                                lineHeight: "1.4",
+                                flexShrink: 0,
+                                marginTop: "2px",
+                                color: colors.brand.accent,
                               }}
                             >
-                              {text}
+                              <MessageSquare
+                                size={16}
+                                color={colors.brand.accent}
+                              />
                             </div>
-                            {time && (
-                              <div
-                                style={{
-                                  fontSize: "12px",
-                                  color: colors.text.muted,
-                                  marginTop: "2px",
-                                  fontFamily: typography.fontFamily.sans,
-                                }}
-                              >
-                                {time}
-                              </div>
+                            <div style={{ flex: 1 }}>
+                              {isEditingThisNote ? (
+                                <input
+                                  type="text"
+                                  value={editingNoteText}
+                                  onChange={(e) =>
+                                    setEditingNoteText(e.target.value)
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      handleSaveEditedNote(idx, time);
+                                    } else if (e.key === "Escape") {
+                                      setEditingNoteIndex(null);
+                                      setEditingNoteText("");
+                                    }
+                                  }}
+                                  autoFocus
+                                  style={{
+                                    width: "100%",
+                                    height: "32px",
+                                    border: `1.5px solid ${colors.brand.accent}`,
+                                    borderRadius: "6px",
+                                    padding: "0 10px",
+                                    fontSize: "13px",
+                                    fontFamily: typography.fontFamily.sans,
+                                    outline: "none",
+                                    background: "#FFFFFF",
+                                  }}
+                                />
+                              ) : (
+                                <>
+                                  <div
+                                    style={{
+                                      fontSize: "14px",
+                                      color: colors.text.primary,
+                                      fontWeight: 500,
+                                      fontFamily: typography.fontFamily.sans,
+                                      lineHeight: "1.4",
+                                      wordBreak: "break-word",
+                                    }}
+                                  >
+                                    {text}
+                                  </div>
+                                  {time && (
+                                    <div
+                                      style={{
+                                        fontSize: "12px",
+                                        color: colors.text.muted,
+                                        marginTop: "2px",
+                                        fontFamily: typography.fontFamily.sans,
+                                      }}
+                                    >
+                                      {time}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Buttons: Edit and Delete */}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {isEditingThisNote ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleSaveEditedNote(idx, time)
+                                  }
+                                  title="Save note"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: "28px",
+                                    height: "28px",
+                                    borderRadius: "6px",
+                                    border: "none",
+                                    background: colors.brand.primary,
+                                    color: colors.sidebar.activeText,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <Check size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingNoteIndex(null);
+                                    setEditingNoteText("");
+                                  }}
+                                  title="Cancel edit"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: "28px",
+                                    height: "28px",
+                                    borderRadius: "6px",
+                                    border: `1px solid ${colors.login.inputBorder}`,
+                                    background: "#FFFFFF",
+                                    color: colors.text.muted,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleStartEditNote(idx, text)
+                                  }
+                                  title="Edit note"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: "28px",
+                                    height: "28px",
+                                    borderRadius: "6px",
+                                    border: "none",
+                                    background: "rgba(35, 114, 165, 0.1)",
+                                    color: colors.brand.accent,
+                                    cursor: "pointer",
+                                    transition: "background 0.15s",
+                                  }}
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteNote(idx)}
+                                  title="Delete note"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: "28px",
+                                    height: "28px",
+                                    borderRadius: "6px",
+                                    border: "none",
+                                    background: "rgba(239, 68, 68, 0.1)",
+                                    color: colors.status.error,
+                                    cursor: "pointer",
+                                    transition: "background 0.15s",
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -1531,71 +1764,6 @@ export default function PendingRequestsPage() {
                   + Add
                 </button>
               </div>
-
-              {/* Save changes button */}
-              {selectedRequest.notes !== undefined && (
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                  <button
-                    type="button"
-                    onClick={() => setNewNoteInput("")}
-                    style={{
-                      padding: "8px 20px",
-                      borderRadius: "8px",
-                      border: `1px solid ${colors.login.inputBorder}`,
-                      background: "#FFFFFF",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: typography.fontFamily.sans,
-                    }}
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!selectedRequest) return;
-                      try {
-                        setIsSaving(true);
-                        const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          credentials: "include",
-                          body: JSON.stringify({
-                            notes: selectedRequest.notes || null,
-                            status: statusToApi(selectedRequest.status),
-                          }),
-                        });
-                        const result = await response.json();
-                        if (!response.ok || !result.success) throw new Error(result.message);
-                        showToast("Notes saved successfully!", "success");
-                      } catch (err) {
-                        showToast(err instanceof Error ? err.message : "Failed to save notes", "error");
-                      } finally {
-                        setIsSaving(false);
-                      }
-                    }}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      padding: "8px 20px",
-                      borderRadius: "8px",
-                      background: colors.brand.primary,
-                      color: colors.sidebar.activeText,
-                      border: "none",
-                      fontSize: "13px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      fontFamily: typography.fontFamily.sans,
-                      boxShadow: "0 4px 12px rgba(244, 188, 67, 0.3)",
-                    }}
-                  >
-                    <Check size={14} />
-                    Save changes
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         )}
