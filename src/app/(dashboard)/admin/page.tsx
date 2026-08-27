@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useDebounce } from "@/hooks/useDebounce";
 import {
   UserPlus,
   Search,
@@ -208,7 +209,18 @@ export default function AdminPage() {
   const [isLoadingAdmins, setIsLoadingAdmins] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 400);
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("All");
+
+  // Server-side pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [hasPreviousPage, setHasPreviousPage] = useState(false);
+  const PAGE_SIZE = 5;
 
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [originalModules, setOriginalModules] = useState<string[]>([]);
@@ -226,47 +238,88 @@ export default function AdminPage() {
   const [selectedAdmin, setSelectedAdmin] = useState<AdminUser | null>(null);
   const [originalAdmin, setOriginalAdmin] = useState<AdminUser | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
 
-  // ─── Fetch Admins ─────────────────────────────────────────────────────────────
+  // ─── Fetch Admins with Backend Query Filters ───────────────────────────────────
 
-  const fetchAdmins = async () => {
-    try {
-      setIsLoadingAdmins(true);
+  const fetchAdmins = useCallback(
+    async (page = 1) => {
+      try {
+        setIsLoadingAdmins(true);
 
-      const response = await fetch("/api/admins", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-      });
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        params.set("limit", String(PAGE_SIZE));
 
-      const result = await response.json();
+        if (debouncedSearch.trim()) {
+          params.set("search", debouncedSearch.trim());
+        }
+        if (selectedCityFilter !== "All" && selectedCityFilter.trim()) {
+          params.set("city", selectedCityFilter.trim());
+        }
+        if (selectedDateFilter.trim()) {
+          params.set("joinedDate", selectedDateFilter.trim());
+        }
+        if (selectedStatusFilter !== "All") {
+          params.set("status", selectedStatusFilter.toUpperCase());
+        }
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to fetch admins");
+        const response = await fetch(`/api/admins?${params.toString()}`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Failed to fetch admins");
+        }
+
+        const rawData = result.data;
+        const apiAdmins: ApiAdmin[] = Array.isArray(rawData)
+          ? rawData
+          : Array.isArray(rawData?.data)
+            ? rawData.data
+            : [];
+
+        const paginationInfo = rawData?.pagination || result.pagination;
+
+        setAdmins(apiAdmins.map(mapApiAdminToAdminUser));
+        setCurrentPage(paginationInfo?.page ?? page);
+        setTotalPages(paginationInfo?.totalPages ?? 1);
+        setTotalCount(paginationInfo?.total ?? apiAdmins.length);
+        setHasNextPage(paginationInfo?.hasNextPage ?? false);
+        setHasPreviousPage(paginationInfo?.hasPreviousPage ?? false);
+      } catch (error) {
+        console.error("FETCH_ADMINS_ERROR:", error);
+
+        showToast(
+          error instanceof Error ? error.message : "Failed to load admins",
+          "error",
+        );
+
+        setAdmins([]);
+        setTotalCount(0);
+        setTotalPages(1);
+      } finally {
+        setIsLoadingAdmins(false);
       }
-
-      const apiAdmins: ApiAdmin[] = result.data?.data || [];
-
-      setAdmins(apiAdmins.map(mapApiAdminToAdminUser));
-    } catch (error) {
-      console.error("FETCH_ADMINS_ERROR:", error);
-
-      showToast(
-        error instanceof Error ? error.message : "Failed to load admins",
-        "error",
-      );
-
-      setAdmins([]);
-    } finally {
-      setIsLoadingAdmins(false);
-    }
-  };
+    },
+    [
+      debouncedSearch,
+      selectedCityFilter,
+      selectedDateFilter,
+      selectedStatusFilter,
+    ],
+  );
 
   useEffect(() => {
-    fetchAdmins();
+    fetchAdmins(1);
+  }, [fetchAdmins]);
+
+  useEffect(() => {
     fetchAvailableModules();
   }, []);
 
@@ -422,19 +475,8 @@ export default function AdminPage() {
     defaultValue: "Active",
   });
 
-  // Filtered Admins by search, city, and date
-  const filteredAdmins = admins.filter((a) => {
-    const matchesCity =
-      selectedCityFilter === "All" || a.city === selectedCityFilter;
-    const matchesDate =
-      !selectedDateFilter || a.joinedDate === selectedDateFilter;
-    const matchesSearch =
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.phone.includes(searchQuery) ||
-      a.subDomain.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCity && matchesDate && matchesSearch;
-  });
+  // Admins from backend (server-side filtered and paginated)
+  const filteredAdmins = admins;
 
   // ── Handle Add Admin ─────────────────────────────────────────────────────────
 
@@ -514,6 +556,9 @@ export default function AdminPage() {
 
       showToast(`Admin "${createdAdmin.name}" added successfully!`, "success");
       setIsAddModalOpen(false);
+
+      // Re-fetch fresh table list from backend
+      fetchAdmins();
     } catch (error) {
       console.error("CREATE_ADMIN_ERROR:", error);
 
@@ -532,6 +577,31 @@ export default function AdminPage() {
   const handleSaveEdit = async () => {
     if (!selectedAdmin) return;
 
+    if (!selectedAdmin.name.trim()) {
+      showToast("Full name is required", "error");
+      return;
+    }
+
+    if (!selectedAdmin.businessName?.trim()) {
+      showToast("Business name is required", "error");
+      return;
+    }
+
+    if (!selectedAdmin.phone.trim()) {
+      showToast("Phone number is required", "error");
+      return;
+    }
+
+    if (!selectedAdmin.email.trim()) {
+      showToast("Email address is required", "error");
+      return;
+    }
+
+    if (!selectedAdmin.city.trim()) {
+      showToast("City is required", "error");
+      return;
+    }
+
     try {
       setIsSaving(true);
 
@@ -542,6 +612,7 @@ export default function AdminPage() {
         },
         body: JSON.stringify({
           fullName: selectedAdmin.name.trim(),
+          businessName: selectedAdmin.businessName.trim(),
           phone: selectedAdmin.phone.trim(),
           email: selectedAdmin.email.trim().toLowerCase(),
           city: selectedAdmin.city.trim(),
@@ -586,6 +657,9 @@ export default function AdminPage() {
         `Admin "${updatedAdmin.name}" updated successfully!`,
         "success",
       );
+
+      // Re-fetch fresh table list from backend
+      fetchAdmins();
     } catch (error) {
       console.error("UPDATE_ADMIN_ERROR:", error);
 
@@ -687,6 +761,9 @@ export default function AdminPage() {
       setIsEditing(false);
 
       showToast(`Admin "${target?.name ?? id}" has been deleted.`, "error");
+
+      // Re-fetch fresh table list from backend
+      fetchAdmins();
     } catch (error) {
       console.error("DELETE_ADMIN_ERROR:", error);
 
@@ -733,8 +810,25 @@ export default function AdminPage() {
         </div>
       ),
     },
-    { header: "Number", accessorKey: "phone" },
-    { header: "Email", accessorKey: "email" },
+    {
+      header: "Contact",
+      cell: (admin) => (
+        <div>
+          <div style={{ fontWeight: 500, color: colors.text.primary }}>
+            {admin.email}
+          </div>
+          <div
+            style={{
+              fontSize: "12px",
+              color: colors.text.muted,
+              marginTop: "2px",
+            }}
+          >
+            {admin.phone}
+          </div>
+        </div>
+      ),
+    },
     { header: "Joined Date", accessorKey: "joinedDate" },
     { header: "Last Renewal", accessorKey: "lastRenewalDate" },
     {
@@ -746,60 +840,105 @@ export default function AdminPage() {
       ),
     },
     {
+      header: "Status",
+      cell: (admin) => (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "3px 10px",
+            borderRadius: "12px",
+            fontSize: "12px",
+            fontWeight: 600,
+            background:
+              admin.status === "Active"
+                ? "rgba(34, 197, 94, 0.12)"
+                : "rgba(239, 68, 68, 0.12)",
+            color:
+              admin.status === "Active"
+                ? colors.status.success
+                : colors.status.error,
+          }}
+        >
+          <span
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              background:
+                admin.status === "Active"
+                  ? colors.status.success
+                  : colors.status.error,
+            }}
+          />
+          {admin.status}
+        </span>
+      ),
+    },
+    {
       header: "Action",
       align: "right",
       cell: (admin) => (
         <button
-          onClick={async () => {
-            try {
-              setIsSaving(true);
-              setIsEditing(false);
+          onClick={() => {
+            setIsEditing(false);
 
-              // 1. Fetch admin details
-              const adminResponse = await fetch(`/api/admins/${admin.id}`, {
+            // 1. Instantly open View details screen using current table row data (0ms delay)
+            setSelectedAdmin({ ...admin });
+            setOriginalAdmin({ ...admin });
+
+            // 2. Fetch full admin details + assigned modules in parallel in the background
+            Promise.all([
+              fetch(`/api/admins/${admin.id}`, {
                 method: "GET",
                 headers: {
                   "Content-Type": "application/json",
                 },
                 cache: "no-store",
-              });
+              })
+                .then(async (res) => {
+                  if (!res.ok) return null;
+                  const json = await res.json();
+                  return json?.success ? json.data : null;
+                })
+                .catch(() => null),
+              fetchAssignedModules(admin.id).catch(() => []),
+            ]).then(([apiAdminData, modules]) => {
+              const rolesAccess = Array.isArray(modules)
+                ? modules.map(
+                    (module: { moduleId: string; name: string; key: string }) =>
+                      module.name,
+                  )
+                : [];
+              const moduleIds = Array.isArray(modules)
+                ? modules.map((module: { moduleId: string }) => module.moduleId)
+                : [];
 
-              const adminResult = await adminResponse.json();
+              setOriginalModules(moduleIds);
+              setSelectedModules(moduleIds);
 
-              if (!adminResponse.ok || !adminResult.success) {
-                throw new Error(adminResult.message || "Failed to fetch admin");
+              if (apiAdminData) {
+                const mappedAdmin = mapApiAdminToAdminUser(apiAdminData);
+                const fullAdmin = {
+                  ...mappedAdmin,
+                  rolesAccess,
+                };
+                setSelectedAdmin((prev) =>
+                  prev?.id === admin.id ? fullAdmin : prev,
+                );
+                setOriginalAdmin((prev) =>
+                  prev?.id === admin.id ? fullAdmin : prev,
+                );
+              } else {
+                setSelectedAdmin((prev) =>
+                  prev?.id === admin.id ? { ...prev, rolesAccess } : prev,
+                );
+                setOriginalAdmin((prev) =>
+                  prev?.id === admin.id ? { ...prev, rolesAccess } : prev,
+                );
               }
-
-              // 2. Fetch assigned modules
-              const modules = await fetchAssignedModules(admin.id);
-
-              // 3. Convert API module names into rolesAccess
-              const rolesAccess = modules.map(
-                (module: { moduleId: string; name: string; key: string }) =>
-                  module.name,
-              );
-
-              // 4. Set admin + assigned roles
-              const mappedAdmin = mapApiAdminToAdminUser(adminResult.data);
-              const fullAdmin = {
-                ...mappedAdmin,
-                rolesAccess,
-              };
-
-              setSelectedAdmin(fullAdmin);
-              setOriginalAdmin(fullAdmin);
-            } catch (error) {
-              console.error("GET_ADMIN_ERROR:", error);
-
-              showToast(
-                error instanceof Error
-                  ? error.message
-                  : "Failed to fetch admin details",
-                "error",
-              );
-            } finally {
-              setIsSaving(false);
-            }
+            });
           }}
           style={{
             display: "inline-flex",
@@ -916,7 +1055,10 @@ export default function AdminPage() {
                   margin: "2px 0 0 0",
                 }}
               >
-                {selectedAdmin.city} • {selectedAdmin.subDomain}
+                {selectedAdmin.businessName
+                  ? `${selectedAdmin.businessName} • `
+                  : ""}
+                {selectedAdmin.city} • {selectedAdmin.subDomain || "No subdomain"}
               </p>
             </div>
           </div>
@@ -971,10 +1113,12 @@ export default function AdminPage() {
             ) : (
               <>
                 <button
-                  onClick={async () => {
+                  onClick={() => {
                     if (selectedAdmin) {
                       setOriginalAdmin({ ...selectedAdmin });
-                      await fetchAdminModules(selectedAdmin.id);
+                      if (selectedModules.length === 0) {
+                        fetchAdminModules(selectedAdmin.id);
+                      }
                     }
                     setIsEditing(true);
                   }}
@@ -1056,8 +1200,7 @@ export default function AdminPage() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Full Name{" "}
-                  <span style={{ color: "#EF4444" }}>*</span>
+                  Full Name <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -1075,15 +1218,20 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  City{" "}
-                  <span style={{ color: "#EF4444" }}>*</span>
+                  Business Name <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="Enter city"
-                  value={selectedAdmin.city}
+                  maxLength={50}
+                  placeholder="Enter business name"
+                  value={selectedAdmin.businessName || ""}
                   onChange={(e) =>
-                    setSelectedAdmin({ ...selectedAdmin, city: e.target.value })
+                    setSelectedAdmin({
+                      ...selectedAdmin,
+                      businessName: e.target.value
+                        .replace(/[^a-zA-Z0-9 ]/g, "")
+                        .slice(0, 50),
+                    })
                   }
                   style={inputStyle(false)}
                 />
@@ -1099,8 +1247,7 @@ export default function AdminPage() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Phone Number{" "}
-                  <span style={{ color: "#EF4444" }}>*</span>
+                  Phone Number <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -1128,8 +1275,7 @@ export default function AdminPage() {
               </div>
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Email Address{" "}
-                  <span style={{ color: "#EF4444" }}>*</span>
+                  Email Address <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="email"
@@ -1155,6 +1301,20 @@ export default function AdminPage() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
+                  City <span style={{ color: "#EF4444" }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter city"
+                  value={selectedAdmin.city}
+                  onChange={(e) =>
+                    setSelectedAdmin({ ...selectedAdmin, city: e.target.value })
+                  }
+                  style={inputStyle(false)}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "13px", fontWeight: 600 }}>
                   Sub-Domain
                 </label>
                 <input
@@ -1170,6 +1330,15 @@ export default function AdminPage() {
                   style={inputStyle(false)}
                 />
               </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+              }}
+            >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
                   Renewal Amount (₹){" "}
@@ -1511,6 +1680,29 @@ export default function AdminPage() {
                     gap: "14px",
                   }}
                 >
+                  <div>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: colors.text.muted,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <Building2 size={12} /> Business Name
+                    </span>
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        marginTop: "2px",
+                        display: "block",
+                        color: colors.text.primary,
+                      }}
+                    >
+                      {selectedAdmin.businessName || "—"}
+                    </strong>
+                  </div>
                   <div>
                     <span
                       style={{
@@ -1976,6 +2168,42 @@ export default function AdminPage() {
           gap: "16px",
         }}
       >
+        {/* Filter by Status */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <ShieldCheck size={16} color={colors.brand.accent} />
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: colors.text.muted,
+              fontFamily: typography.fontFamily.sans,
+            }}
+          >
+            Status:
+          </span>
+          <select
+            value={selectedStatusFilter}
+            onChange={(e) => setSelectedStatusFilter(e.target.value)}
+            style={{
+              height: "38px",
+              borderRadius: "8px",
+              border: `1px solid ${colors.header.border}`,
+              padding: "0 12px",
+              fontFamily: typography.fontFamily.sans,
+              fontSize: "13px",
+              fontWeight: 600,
+              color: colors.brand.accent,
+              outline: "none",
+              cursor: "pointer",
+              background: "#FFFFFF",
+            }}
+          >
+            <option value="All">All Status</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+          </select>
+        </div>
+
         {/* Filter by City */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Filter size={16} color={colors.brand.accent} />
@@ -2086,36 +2314,66 @@ export default function AdminPage() {
             borderRadius: "8px",
             border: `1px solid ${colors.header.border}`,
             flex: 1,
-            minWidth: "240px",
+            minWidth: "220px",
           }}
         >
           <Search size={18} color={colors.text.muted} />
           <input
             type="text"
-            placeholder="Search admin by name, number, email, domain..."
+            placeholder="Search admin by name, number, email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: "100%",
               border: "none",
               outline: "none",
-              fontSize: "14px",
+              fontSize: "13px",
               background: "transparent",
               fontFamily: typography.fontFamily.sans,
               color: colors.text.primary,
             }}
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              title="Clear search"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                color: colors.text.muted,
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Reusable DataTable UI (with S.No column & 5 items pagination) ── */}
+      {/* ── Reusable DataTable UI (with S.No column & server-side pagination) ── */}
       <DataTable
         columns={columns}
-        data={filteredAdmins}
+        data={admins}
         keyExtractor={(a) => a.id}
-        pageSize={5}
+        pageSize={PAGE_SIZE}
         isLoading={isLoadingAdmins}
         emptyMessage="No admin records found."
+        pagination={{
+          page: currentPage,
+          limit: PAGE_SIZE,
+          total: totalCount,
+          totalPages: totalPages,
+          hasNextPage: hasNextPage,
+          hasPreviousPage: hasPreviousPage,
+          onPageChange: (p) => {
+            setCurrentPage(p);
+            fetchAdmins(p);
+          },
+        }}
       />
 
       {/* ── Add Admin Modal ── */}

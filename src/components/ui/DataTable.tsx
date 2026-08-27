@@ -12,6 +12,16 @@ export interface Column<T> {
   width?: string;
 }
 
+export interface ServerPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage?: boolean;
+  hasPreviousPage?: boolean;
+  onPageChange: (page: number) => void;
+}
+
 interface DataTableProps<T> {
   columns: Column<T>[];
   data: T[];
@@ -19,6 +29,7 @@ interface DataTableProps<T> {
   pageSize?: number;
   emptyMessage?: string;
   isLoading?: boolean;
+  pagination?: ServerPagination;
 }
 
 export function DataTable<T>({
@@ -28,17 +39,67 @@ export function DataTable<T>({
   pageSize = 5,
   emptyMessage = "No records found.",
   isLoading = false,
+  pagination,
 }: DataTableProps<T>) {
-  const [currentPage, setCurrentPage] = useState(1);
+  const [clientPage, setClientPage] = useState(1);
 
-  const totalRows = data.length;
-  const totalPages = Math.ceil(totalRows / pageSize);
+  const isServer = Boolean(pagination);
+  const totalEntries = isServer ? pagination!.total : data.length;
+  const effectivePageSize = isServer ? pagination!.limit : pageSize;
+  const totalPages = isServer
+    ? pagination!.totalPages
+    : Math.max(1, Math.ceil(totalEntries / effectivePageSize));
 
-  // If current page is beyond total pages (e.g. after filter), reset to 1
-  const safePage = currentPage > totalPages && totalPages > 0 ? 1 : currentPage;
+  const safeClientPage =
+    clientPage > totalPages && totalPages > 0 ? 1 : clientPage;
+  const activePage = isServer ? pagination!.page : safeClientPage;
 
-  const startIndex = (safePage - 1) * pageSize;
-  const paginatedData = data.slice(startIndex, startIndex + pageSize);
+  const startIndex = (activePage - 1) * effectivePageSize;
+  const displayData = isServer
+    ? data
+    : data.slice(startIndex, startIndex + effectivePageSize);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages || newPage === activePage) return;
+    if (isServer && pagination?.onPageChange) {
+      pagination.onPageChange(newPage);
+    } else {
+      setClientPage(newPage);
+    }
+  };
+
+  const hasPrev = isServer
+    ? (pagination?.hasPreviousPage ?? activePage > 1)
+    : activePage > 1;
+  const hasNext = isServer
+    ? (pagination?.hasNextPage ?? activePage < totalPages)
+    : activePage < totalPages;
+
+  // Generate page numbers to display
+  const getPageNumbers = () => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages: (number | string)[] = [];
+    if (activePage <= 4) {
+      for (let i = 1; i <= 5; i++) pages.push(i);
+      pages.push("...");
+      pages.push(totalPages);
+    } else if (activePage >= totalPages - 3) {
+      pages.push(1);
+      pages.push("...");
+      for (let i = totalPages - 4; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      pages.push("...");
+      pages.push(activePage - 1);
+      pages.push(activePage);
+      pages.push(activePage + 1);
+      pages.push("...");
+      pages.push(totalPages);
+    }
+    return pages;
+  };
 
   return (
     <div
@@ -92,7 +153,7 @@ export function DataTable<T>({
           </thead>
           <tbody>
             {isLoading ? (
-              Array.from({ length: pageSize }).map((_, rIdx) => (
+              Array.from({ length: effectivePageSize }).map((_, rIdx) => (
                 <tr
                   key={rIdx}
                   style={{
@@ -142,7 +203,7 @@ export function DataTable<T>({
                 </td>
               </tr>
             ) : (
-              paginatedData.map((row, idx) => {
+              displayData.map((row, idx) => {
                 const globalIndex = startIndex + idx + 1;
                 return (
                   <tr
@@ -188,8 +249,8 @@ export function DataTable<T>({
         </table>
       </div>
 
-      {/* Pagination UI — Shown ONLY IF totalRows > pageSize (5) */}
-      {totalRows > pageSize && (
+      {/* Pagination UI */}
+      {totalEntries > 0 && totalPages > 1 && (
         <div
           style={{
             padding: "12px 20px",
@@ -206,15 +267,15 @@ export function DataTable<T>({
           <div>
             Showing <strong style={{ color: colors.text.primary }}>{startIndex + 1}</strong> to{" "}
             <strong style={{ color: colors.text.primary }}>
-              {Math.min(startIndex + pageSize, totalRows)}
+              {Math.min(startIndex + effectivePageSize, totalEntries)}
             </strong>{" "}
-            of <strong style={{ color: colors.text.primary }}>{totalRows}</strong> entries
+            of <strong style={{ color: colors.text.primary }}>{totalEntries}</strong> entries
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <button
-              onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-              disabled={safePage === 1}
+              onClick={() => handlePageChange(activePage - 1)}
+              disabled={!hasPrev}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -223,8 +284,8 @@ export function DataTable<T>({
                 borderRadius: "6px",
                 border: `1px solid ${colors.header.border}`,
                 background: "#FFFFFF",
-                cursor: safePage === 1 ? "not-allowed" : "pointer",
-                opacity: safePage === 1 ? 0.5 : 1,
+                cursor: !hasPrev ? "not-allowed" : "pointer",
+                opacity: !hasPrev ? 0.5 : 1,
                 fontSize: "13px",
                 fontWeight: 600,
                 color: colors.text.primary,
@@ -234,32 +295,51 @@ export function DataTable<T>({
               Previous
             </button>
 
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-              <button
-                key={pageNum}
-                onClick={() => setCurrentPage(pageNum)}
-                style={{
-                  width: "32px",
-                  height: "32px",
-                  borderRadius: "6px",
-                  border:
-                    pageNum === safePage
+            {getPageNumbers().map((pageNum, pIdx) => {
+              if (pageNum === "...") {
+                return (
+                  <span
+                    key={`ellipsis-${pIdx}`}
+                    style={{
+                      padding: "0 4px",
+                      color: colors.text.muted,
+                      fontWeight: 600,
+                    }}
+                  >
+                    ...
+                  </span>
+                );
+              }
+
+              const num = Number(pageNum);
+              const isActive = num === activePage;
+
+              return (
+                <button
+                  key={num}
+                  onClick={() => handlePageChange(num)}
+                  style={{
+                    width: "32px",
+                    height: "32px",
+                    borderRadius: "6px",
+                    border: isActive
                       ? `1px solid ${colors.brand.primary}`
                       : `1px solid ${colors.header.border}`,
-                  background: pageNum === safePage ? colors.brand.primary : "#FFFFFF",
-                  color: pageNum === safePage ? colors.sidebar.activeText : colors.text.primary,
-                  fontWeight: pageNum === safePage ? 700 : 500,
-                  fontSize: "13px",
-                  cursor: "pointer",
-                }}
-              >
-                {pageNum}
-              </button>
-            ))}
+                    background: isActive ? colors.brand.primary : "#FFFFFF",
+                    color: isActive ? colors.sidebar.activeText : colors.text.primary,
+                    fontWeight: isActive ? 700 : 500,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {num}
+                </button>
+              );
+            })}
 
             <button
-              onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-              disabled={safePage === totalPages}
+              onClick={() => handlePageChange(activePage + 1)}
+              disabled={!hasNext}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -268,8 +348,8 @@ export function DataTable<T>({
                 borderRadius: "6px",
                 border: `1px solid ${colors.header.border}`,
                 background: "#FFFFFF",
-                cursor: safePage === totalPages ? "not-allowed" : "pointer",
-                opacity: safePage === totalPages ? 0.5 : 1,
+                cursor: !hasNext ? "not-allowed" : "pointer",
+                opacity: !hasNext ? 0.5 : 1,
                 fontSize: "13px",
                 fontWeight: 600,
                 color: colors.text.primary,

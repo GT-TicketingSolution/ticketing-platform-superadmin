@@ -30,11 +30,21 @@ export interface RenewalItem {
   id: string;
   adminId: string;
   adminName: string;
+  adminEmail?: string | null;
+  adminJoinedAt?: string | null;
+  adminNextRenewalDate?: string | null;
   renewalDate: string;
   amount: number;
   lastNotificationSent?: string;
+  lastNotificationSentAt?: string | null;
   city: string;
-  status: "Due Soon" | "Overdue" | "Upcoming" | "Completed";
+  status: "Due Soon" | "Overdue" | "Upcoming" | "Completed" | "PENDING" | "PAID" | "CANCELLED";
+  paymentDate?: string | null;
+  paymentMethod?: string | null;
+  transactionReference?: string | null;
+  paymentStatus?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DashboardFilterState {

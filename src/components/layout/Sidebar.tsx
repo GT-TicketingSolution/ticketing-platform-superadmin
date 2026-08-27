@@ -439,13 +439,11 @@ export default function Sidebar({
   onDrawerClose,
 }: SidebarProps) {
   const pathname = usePathname();
-  const [activePath, setActivePath] = useState<string | null>(null);
   const { profile, openEditModal } = useProfile();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   const closeDrawer = useCallback(onDrawerClose, [onDrawerClose]);
   useEffect(() => {
-    setActivePath(null);
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
@@ -600,11 +598,10 @@ export default function Sidebar({
         {/* Navigation items */}
         <nav style={{ flex: 1, padding: "12px 0" }}>
           {NAV_ITEMS.map((item) => {
-            const currentPath = activePath || pathname;
             const isActive =
-              currentPath === item.href ||
-              currentPath.startsWith(item.href + "/") ||
-              (item.href === "/dashboard" && currentPath === "/");
+              pathname === item.href ||
+              pathname.startsWith(item.href + "/") ||
+              (item.href === "/dashboard" && (pathname === "/" || pathname === "/dashboard"));
 
             return (
               <NavItem
@@ -614,7 +611,6 @@ export default function Sidebar({
                 icon={item.icon}
                 isActive={isActive}
                 isIconOnly={isIconOnly}
-                onClick={() => setActivePath(item.href)}
               />
             );
           })}

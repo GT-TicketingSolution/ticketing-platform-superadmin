@@ -10,6 +10,7 @@ import {
   Clock,
   CheckCircle2,
   Filter,
+  X,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { type RenewalItem } from "@/types/superadmin";
@@ -17,33 +18,39 @@ import { useToast } from "@/components/ui/Toast";
 import { confirmNotify } from "@/lib/notify";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { META_CONSTANTS } from "@/lib/metaConstant";
+import { useDebounce } from "@/hooks/useDebounce";
+
+type ApiRenewal = {
+  id: string;
+  adminId: string;
+  adminName: string | null;
+  adminEmail: string | null;
+  adminJoinedAt?: string | null;
+  adminNextRenewalDate?: string | null;
+  city?: string | null;
+  amount: string | number;
+  startDate: string;
+  dueDate: string;
+  status: "PENDING" | "PAID" | "CANCELLED";
+  paymentDate: string | null;
+  paymentMethod:
+    | "CASH"
+    | "BANK_TRANSFER"
+    | "UPI"
+    | "CARD"
+    | "ONLINE"
+    | "OTHER"
+    | null;
+  transactionReference: string | null;
+  paymentStatus: "PENDING" | "SUCCESS" | "FAILED" | "REFUNDED" | null;
+  createdAt: string;
+  updatedAt: string;
+  lastNotificationSentAt: string | null;
+};
 
 type RenewalsApiResponse = {
   success: boolean;
-  data: Array<{
-    id: string;
-    adminId: string;
-    adminName: string | null;
-    adminEmail: string | null;
-    city: string | null;
-    amount: string;
-    startDate: string;
-    dueDate: string;
-    status: "PENDING" | "PAID" | "CANCELLED";
-    paymentDate: string | null;
-    paymentMethod:
-      | "CASH"
-      | "BANK_TRANSFER"
-      | "UPI"
-      | "CARD"
-      | "ONLINE"
-      | "OTHER"
-      | null;
-    transactionReference: string | null;
-    paymentStatus: "PENDING" | "SUCCESS" | "FAILED" | "REFUNDED" | null;
-    createdAt: string;
-    updatedAt: string;
-  }>;
+  data: ApiRenewal[];
   pagination: {
     page: number;
     limit: number;
@@ -54,6 +61,7 @@ type RenewalsApiResponse = {
   };
   message?: string;
 };
+
 export default function RenewalPage() {
   useEffect(() => {
     document.title = META_CONSTANTS.renewal.fullTitle;
@@ -63,6 +71,10 @@ export default function RenewalPage() {
       if (searchParam) {
         setSearchQuery(searchParam);
       }
+      const statusParam = params.get("status");
+      if (statusParam) {
+        setStatusFilter(statusParam.toUpperCase());
+      }
     }
   }, []);
 
@@ -71,114 +83,149 @@ export default function RenewalPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 400);
   const [statusFilter, setStatusFilter] = useState<string>("All");
 
-  const fetchRenewals = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  // Server-side pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [hasPreviousPage, setHasPreviousPage] = useState(false);
+  const PAGE_SIZE = 5;
 
-      const params = new URLSearchParams();
+  const fetchRenewals = useCallback(
+    async (page = 1) => {
+      try {
+        setIsLoading(true);
+        setError(null);
 
-      params.set("page", "1");
-      params.set("limit", "100");
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        params.set("limit", String(PAGE_SIZE));
 
-      if (searchQuery.trim()) {
-        params.set("search", searchQuery.trim());
-      }
-
-      if (
-        statusFilter === "PENDING" ||
-        statusFilter === "PAID" ||
-        statusFilter === "CANCELLED"
-      ) {
-        params.set("status", statusFilter);
-      }
-
-      const response = await fetch(`/api/renewals?${params.toString()}`, {
-        method: "GET",
-        credentials: "include",
-      });
-
-      const result: RenewalsApiResponse = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to fetch renewals");
-      }
-
-      const mappedRenewals: RenewalItem[] = result.data.map((r) => {
-        const dueDate = new Date(r.dueDate);
-        const today = new Date();
-
-        today.setHours(0, 0, 0, 0);
-        dueDate.setHours(0, 0, 0, 0);
-
-        const daysRemaining = Math.ceil(
-          (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-        );
-
-        let displayStatus: RenewalItem["status"];
-
-        if (r.status === "PAID") {
-          displayStatus = "Completed";
-        } else if (daysRemaining < 0) {
-          displayStatus = "Overdue";
-        } else if (daysRemaining <= 15) {
-          displayStatus = "Due Soon";
-        } else {
-          displayStatus = "Upcoming";
+        if (debouncedSearch.trim()) {
+          params.set("search", debouncedSearch.trim());
         }
 
-        return {
-          id: r.id,
-          adminId: r.adminId,
-          adminName: r.adminName ?? "Unknown Admin",
-          city: "",
-          renewalDate: dueDate.toLocaleDateString("en-IN", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          }),
-          amount: Number(r.amount),
-          status: displayStatus,
-        };
-      });
+        if (statusFilter !== "All") {
+          params.set("status", statusFilter);
+        }
 
-      setRenewals(mappedRenewals);
-    } catch (error) {
-      console.error("FETCH_RENEWALS_ERROR:", error);
+        const response = await fetch(`/api/renewals?${params.toString()}`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
 
-      setError(
-        error instanceof Error ? error.message : "Failed to fetch renewals",
-      );
+        const result: RenewalsApiResponse = await response.json();
 
-      setRenewals([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [searchQuery, statusFilter]);
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Failed to fetch renewals");
+        }
+
+        const apiData: ApiRenewal[] = Array.isArray(result.data)
+          ? result.data
+          : [];
+
+        const mappedRenewals: RenewalItem[] = apiData.map((r) => {
+          const dueDate = new Date(r.dueDate);
+          const formattedDueDate = isNaN(dueDate.getTime())
+            ? r.dueDate
+            : dueDate.toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              });
+
+          return {
+            id: r.id,
+            adminId: r.adminId,
+            adminName: r.adminName ?? "Unknown Admin",
+            adminEmail: r.adminEmail ?? "",
+            adminJoinedAt: r.adminJoinedAt ?? null,
+            adminNextRenewalDate: r.adminNextRenewalDate ?? null,
+            city: r.city ?? "",
+            renewalDate: formattedDueDate,
+            amount: Number(r.amount) || 0,
+            status: r.status,
+            lastNotificationSentAt: r.lastNotificationSentAt ?? null,
+            paymentDate: r.paymentDate,
+            paymentMethod: r.paymentMethod,
+            transactionReference: r.transactionReference,
+            paymentStatus: r.paymentStatus,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+          };
+        });
+
+        setRenewals(mappedRenewals);
+        setCurrentPage(result.pagination?.page ?? page);
+        setTotalPages(result.pagination?.totalPages ?? 1);
+        setTotalCount(result.pagination?.total ?? apiData.length);
+        setHasNextPage(result.pagination?.hasNextPage ?? false);
+        setHasPreviousPage(result.pagination?.hasPreviousPage ?? false);
+      } catch (err) {
+        console.error("FETCH_RENEWALS_ERROR:", err);
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch renewals",
+        );
+        setRenewals([]);
+        setTotalCount(0);
+        setTotalPages(1);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [debouncedSearch, statusFilter],
+  );
 
   useEffect(() => {
-    fetchRenewals();
+    fetchRenewals(1);
   }, [fetchRenewals]);
 
-  const renderRenewalStatusBadge = (status: RenewalItem["status"]) => {
-    let bg: string = "rgba(35, 114, 165, 0.12)";
-    let fg: string = colors.brand.accent;
-    let icon = <Calendar size={13} />;
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("All");
+  };
 
-    if (status === "Overdue") {
-      bg = "#FEF2F2";
-      fg = colors.status.error;
-      icon = <AlertTriangle size={13} />;
-    } else if (status === "Due Soon") {
-      bg = "#FFFBEB";
-      fg = "#D97706";
-      icon = <Clock size={13} />;
-    } else if (status === "Completed") {
+  const hasActiveFilters = Boolean(searchQuery.trim()) || statusFilter !== "All";
+
+  const formatLastNotification = (isoString?: string | null) => {
+    if (!isoString) return "Not Sent";
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "Not Sent";
+    return d.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  const renderRenewalStatusBadge = (status: string) => {
+    let bg: string = "rgba(244, 188, 67, 0.15)";
+    let fg: string = "#D97706";
+    let label = status;
+    let icon = <Clock size={13} />;
+
+    if (status === "PAID" || status === "Completed") {
       bg = "#F0FDF4";
       fg = "#16A34A";
+      label = "Paid";
       icon = <CheckCircle2 size={13} />;
+    } else if (status === "CANCELLED" || status === "Cancelled") {
+      bg = "#FEF2F2";
+      fg = colors.status.error;
+      label = "Cancelled";
+      icon = <AlertTriangle size={13} />;
+    } else if (status === "PENDING" || status === "Pending") {
+      bg = "#FFFBEB";
+      fg = "#D97706";
+      label = "Pending";
+      icon = <Clock size={13} />;
     }
 
     return (
@@ -197,20 +244,10 @@ export default function RenewalPage() {
         }}
       >
         {icon}
-        {status}
+        {label}
       </span>
     );
   };
-
-  const filteredRenewals = renewals.filter((r) => {
-    const matchesSearch =
-      r.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.adminName.toLowerCase().includes(searchQuery.toLowerCase());
-
-    const matchesStatus = statusFilter === "All" || r.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
 
   const handleSendNotification = async (id: string, adminName: string) => {
     const confirmed = await confirmNotify(adminName);
@@ -229,28 +266,14 @@ export default function RenewalPage() {
         throw new Error(result.message || "Failed to send notification");
       }
 
-      const now = new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      setRenewals((current) =>
-        current.map((r) =>
-          r.id === id
-            ? {
-                ...r,
-                lastNotificationSent: now,
-              }
-            : r,
-        ),
-      );
-
       showToast(`Renewal reminder sent to "${adminName}"`, "success");
-    } catch (error) {
-      console.error("SEND_RENEWAL_NOTIFICATION_ERROR:", error);
 
+      // Re-fetch to get the backend's updated lastNotificationSentAt timestamp
+      fetchRenewals(currentPage);
+    } catch (err) {
+      console.error("SEND_RENEWAL_NOTIFICATION_ERROR:", err);
       showToast(
-        error instanceof Error ? error.message : "Failed to send notification",
+        err instanceof Error ? err.message : "Failed to send notification",
         "error",
       );
     }
@@ -277,9 +300,15 @@ export default function RenewalPage() {
           </div>
           <div>
             <div style={{ fontWeight: 600 }}>{r.adminName}</div>
-            <div style={{ fontSize: "12px", color: colors.brand.accent }}>
-              {r.city}
-            </div>
+            {r.city ? (
+              <div style={{ fontSize: "12px", color: colors.brand.accent }}>
+                {r.city}
+              </div>
+            ) : r.adminEmail ? (
+              <div style={{ fontSize: "12px", color: colors.text.muted }}>
+                {r.adminEmail}
+              </div>
+            ) : null}
           </div>
         </div>
       ),
@@ -348,9 +377,18 @@ export default function RenewalPage() {
             <span>Send Notification</span>
           </button>
 
-          {r.lastNotificationSent && (
-            <span style={{ fontSize: "11px", color: colors.text.muted }}>
-              Last sent today at {r.lastNotificationSent}
+          {r.lastNotificationSentAt && (
+            <span
+              style={{
+                fontSize: "11px",
+                color: colors.text.muted,
+                fontFamily: typography.fontFamily.sans,
+              }}
+            >
+              Last Sent:{" "}
+              <strong style={{ color: colors.brand.accent }}>
+                {formatLastNotification(r.lastNotificationSentAt)}
+              </strong>
             </span>
           )}
         </div>
@@ -380,7 +418,7 @@ export default function RenewalPage() {
               margin: 0,
             }}
           >
-            Subscription & License Renewals ({renewals.length})
+            Subscription & License Renewals ({totalCount})
           </h1>
           <p
             style={{
@@ -425,7 +463,7 @@ export default function RenewalPage() {
           <Search size={18} color={colors.text.muted} />
           <input
             type="text"
-            placeholder="Search admin name, city..."
+            placeholder="Search admin name"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
@@ -435,11 +473,30 @@ export default function RenewalPage() {
               fontSize: "14px",
               background: "transparent",
               fontFamily: typography.fontFamily.sans,
+              color: colors.text.primary,
             }}
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              title="Clear search"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                color: colors.text.muted,
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
-        {/* Status Filter Buttons */}
+        {/* Status Filter Buttons & Reset */}
         <div
           style={{
             display: "flex",
@@ -460,12 +517,17 @@ export default function RenewalPage() {
           >
             <Filter size={14} /> Filter Status:
           </span>
-          {["All", "Due Soon", "Overdue", "Upcoming"].map((status) => {
-            const isActive = statusFilter === status;
+          {[
+            { label: "All", value: "All" },
+            { label: "Pending", value: "PENDING" },
+            { label: "Paid", value: "PAID" },
+            { label: "Cancelled", value: "CANCELLED" },
+          ].map((item) => {
+            const isActive = statusFilter === item.value;
             return (
               <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
+                key={item.value}
+                onClick={() => setStatusFilter(item.value)}
                 style={{
                   padding: "6px 14px",
                   borderRadius: "20px",
@@ -481,21 +543,59 @@ export default function RenewalPage() {
                   fontFamily: typography.fontFamily.sans,
                 }}
               >
-                {status}
+                {item.label}
               </button>
             );
           })}
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: "6px 12px",
+                borderRadius: "20px",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: `1px solid ${colors.status.error}`,
+                background: "rgba(239, 68, 68, 0.08)",
+                color: colors.status.error,
+                transition: "all 0.15s ease",
+                fontFamily: typography.fontFamily.sans,
+                marginLeft: "6px",
+              }}
+            >
+              <X size={12} />
+              Clear Filters
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Reusable DataTable UI (with S.No & 5 items pagination) ── */}
+      {/* ── Reusable DataTable UI (with S.No & server-side pagination) ── */}
       <DataTable
         columns={columns}
-        data={filteredRenewals}
+        data={renewals}
         keyExtractor={(r) => r.id}
-        pageSize={5}
+        pageSize={PAGE_SIZE}
         isLoading={isLoading}
         emptyMessage={error ?? "No renewal records found."}
+        pagination={{
+          page: currentPage,
+          limit: PAGE_SIZE,
+          total: totalCount,
+          totalPages: totalPages,
+          hasNextPage: hasNextPage,
+          hasPreviousPage: hasPreviousPage,
+          onPageChange: (p) => {
+            setCurrentPage(p);
+            fetchRenewals(p);
+          },
+        }}
       />
     </div>
   );
