@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 
@@ -20,6 +20,7 @@ export type DashboardFilters = {
 /* -------------------------------------------------------------------------- */
 
 async function getDashboardStats(city?: string, from?: Date, to?: Date) {
+  const DUE_SOON_LIMIT_DAYS = Number(process.env.DUE_SOON_LIMIT_DAYS);
   const now = new Date();
 
   /* ------------------------------------------------------------------------ */
@@ -84,9 +85,13 @@ async function getDashboardStats(city?: string, from?: Date, to?: Date) {
   /* Upcoming Renewals                                                        */
   /* ------------------------------------------------------------------------ */
 
+  const dueSoonLimit = new Date(now);
+  dueSoonLimit.setDate(dueSoonLimit.getDate() + DUE_SOON_LIMIT_DAYS);
+
   const upcomingRenewalConditions = [
     eq(renewals.status, "PENDING"),
     gt(renewals.dueDate, now),
+    lte(renewals.dueDate, dueSoonLimit),
     ...(city ? [eq(admins.city, city)] : []),
     ...(from ? [gteDate(renewals.dueDate, from)] : []),
     ...(to ? [lteDate(renewals.dueDate, to)] : []),
