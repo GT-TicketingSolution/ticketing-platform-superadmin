@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useDebounce } from "@/hooks/useDebounce";
 import {
   UserPlus,
   Search,
@@ -208,8 +209,18 @@ export default function AdminPage() {
   const [isLoadingAdmins, setIsLoadingAdmins] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 400);
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("All");
+
+  // Server-side pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [hasPreviousPage, setHasPreviousPage] = useState(false);
+  const PAGE_SIZE = 5;
 
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [originalModules, setOriginalModules] = useState<string[]>([]);
@@ -227,47 +238,88 @@ export default function AdminPage() {
   const [selectedAdmin, setSelectedAdmin] = useState<AdminUser | null>(null);
   const [originalAdmin, setOriginalAdmin] = useState<AdminUser | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
 
-  // ─── Fetch Admins ─────────────────────────────────────────────────────────────
+  // ─── Fetch Admins with Backend Query Filters ───────────────────────────────────
 
-  const fetchAdmins = async () => {
-    try {
-      setIsLoadingAdmins(true);
+  const fetchAdmins = useCallback(
+    async (page = 1) => {
+      try {
+        setIsLoadingAdmins(true);
 
-      const response = await fetch("/api/admins", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-      });
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        params.set("limit", String(PAGE_SIZE));
 
-      const result = await response.json();
+        if (debouncedSearch.trim()) {
+          params.set("search", debouncedSearch.trim());
+        }
+        if (selectedCityFilter !== "All" && selectedCityFilter.trim()) {
+          params.set("city", selectedCityFilter.trim());
+        }
+        if (selectedDateFilter.trim()) {
+          params.set("joinedDate", selectedDateFilter.trim());
+        }
+        if (selectedStatusFilter !== "All") {
+          params.set("status", selectedStatusFilter.toUpperCase());
+        }
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to fetch admins");
+        const response = await fetch(`/api/admins?${params.toString()}`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Failed to fetch admins");
+        }
+
+        const rawData = result.data;
+        const apiAdmins: ApiAdmin[] = Array.isArray(rawData)
+          ? rawData
+          : Array.isArray(rawData?.data)
+            ? rawData.data
+            : [];
+
+        const paginationInfo = rawData?.pagination || result.pagination;
+
+        setAdmins(apiAdmins.map(mapApiAdminToAdminUser));
+        setCurrentPage(paginationInfo?.page ?? page);
+        setTotalPages(paginationInfo?.totalPages ?? 1);
+        setTotalCount(paginationInfo?.total ?? apiAdmins.length);
+        setHasNextPage(paginationInfo?.hasNextPage ?? false);
+        setHasPreviousPage(paginationInfo?.hasPreviousPage ?? false);
+      } catch (error) {
+        console.error("FETCH_ADMINS_ERROR:", error);
+
+        showToast(
+          error instanceof Error ? error.message : "Failed to load admins",
+          "error",
+        );
+
+        setAdmins([]);
+        setTotalCount(0);
+        setTotalPages(1);
+      } finally {
+        setIsLoadingAdmins(false);
       }
-
-      const apiAdmins: ApiAdmin[] = result.data?.data || [];
-
-      setAdmins(apiAdmins.map(mapApiAdminToAdminUser));
-    } catch (error) {
-      console.error("FETCH_ADMINS_ERROR:", error);
-
-      showToast(
-        error instanceof Error ? error.message : "Failed to load admins",
-        "error",
-      );
-
-      setAdmins([]);
-    } finally {
-      setIsLoadingAdmins(false);
-    }
-  };
+    },
+    [
+      debouncedSearch,
+      selectedCityFilter,
+      selectedDateFilter,
+      selectedStatusFilter,
+    ],
+  );
 
   useEffect(() => {
-    fetchAdmins();
+    fetchAdmins(1);
+  }, [fetchAdmins]);
+
+  useEffect(() => {
     fetchAvailableModules();
   }, []);
 
@@ -423,24 +475,8 @@ export default function AdminPage() {
     defaultValue: "Active",
   });
 
-  // Filtered Admins by search, city, date, and status
-  const filteredAdmins = admins.filter((a) => {
-    const matchesStatus =
-      selectedStatusFilter === "All" ||
-      a.status.toLowerCase() === selectedStatusFilter.toLowerCase();
-    const matchesCity =
-      selectedCityFilter === "All" || a.city === selectedCityFilter;
-    const matchesDate =
-      !selectedDateFilter || a.joinedDate === selectedDateFilter;
-    const matchesSearch =
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (a.businessName &&
-        a.businessName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      a.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.phone.includes(searchQuery) ||
-      a.subDomain.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesCity && matchesDate && matchesSearch;
-  });
+  // Admins from backend (server-side filtered and paginated)
+  const filteredAdmins = admins;
 
   // ── Handle Add Admin ─────────────────────────────────────────────────────────
 
@@ -2163,8 +2199,8 @@ export default function AdminPage() {
             }}
           >
             <option value="All">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
           </select>
         </div>
 
@@ -2278,36 +2314,66 @@ export default function AdminPage() {
             borderRadius: "8px",
             border: `1px solid ${colors.header.border}`,
             flex: 1,
-            minWidth: "240px",
+            minWidth: "220px",
           }}
         >
           <Search size={18} color={colors.text.muted} />
           <input
             type="text"
-            placeholder="Search admin by name, number, email, domain..."
+            placeholder="Search admin by name, number, email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: "100%",
               border: "none",
               outline: "none",
-              fontSize: "14px",
+              fontSize: "13px",
               background: "transparent",
               fontFamily: typography.fontFamily.sans,
               color: colors.text.primary,
             }}
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              title="Clear search"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                color: colors.text.muted,
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Reusable DataTable UI (with S.No column & 5 items pagination) ── */}
+      {/* ── Reusable DataTable UI (with S.No column & server-side pagination) ── */}
       <DataTable
         columns={columns}
-        data={filteredAdmins}
+        data={admins}
         keyExtractor={(a) => a.id}
-        pageSize={5}
+        pageSize={PAGE_SIZE}
         isLoading={isLoadingAdmins}
         emptyMessage="No admin records found."
+        pagination={{
+          page: currentPage,
+          limit: PAGE_SIZE,
+          total: totalCount,
+          totalPages: totalPages,
+          hasNextPage: hasNextPage,
+          hasPreviousPage: hasPreviousPage,
+          onPageChange: (p) => {
+            setCurrentPage(p);
+            fetchAdmins(p);
+          },
+        }}
       />
 
       {/* ── Add Admin Modal ── */}

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useDebounce } from "@/hooks/useDebounce";
 import {
   Plus,
   Search,
@@ -104,6 +105,7 @@ type AdminRequestsResponse = {
     hasNextPage: boolean;
     hasPreviousPage: boolean;
   };
+  message?: string;
 };
 
 const API_URL = "/api/admin-requests";
@@ -214,6 +216,7 @@ export default function PendingRequestsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 400);
   const [selectedStatusFilter, setSelectedStatusFilter] =
     useState<string>("All");
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
@@ -241,62 +244,92 @@ export default function PendingRequestsPage() {
     }
   }, []);
 
-  const fetchRequests = async (page = 1) => {
-    try {
-      setIsLoading(true);
+  const fetchRequests = useCallback(
+    async (page = 1) => {
+      try {
+        setIsLoading(true);
 
-      const params = new URLSearchParams();
+        const params = new URLSearchParams();
 
-      params.set("page", String(page));
-      params.set("limit", String(PAGE_SIZE));
+        params.set("page", String(page));
+        params.set("limit", String(PAGE_SIZE));
 
-      if (searchQuery.trim()) {
-        params.set("search", searchQuery.trim());
+        if (debouncedSearch.trim()) {
+          params.set("search", debouncedSearch.trim());
+        }
+
+        if (selectedStatusFilter !== "All") {
+          params.set(
+            "status",
+            statusToApi(selectedStatusFilter as PendingRequest["status"]),
+          );
+        }
+
+        if (selectedCityFilter !== "All" && selectedCityFilter.trim()) {
+          params.set("city", selectedCityFilter.trim());
+        }
+
+        if (selectedDateFilter.trim()) {
+          params.set("createdAt", selectedDateFilter.trim());
+        }
+
+        const response = await fetch(`${API_URL}?${params.toString()}`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        const result: AdminRequestsResponse = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.message || "Failed to fetch admin requests",
+          );
+        }
+
+        const apiData: ApiAdminRequest[] = Array.isArray(result.data)
+          ? result.data
+          : [];
+
+        setRequests(apiData.map(normalizeRequest));
+        setCurrentPage(result.pagination?.page ?? page);
+        setTotalPages(result.pagination?.totalPages ?? 1);
+        setTotalCount(result.pagination?.total ?? apiData.length);
+      } catch (error) {
+        console.error("FETCH_ADMIN_REQUESTS_ERROR:", error);
+
+        showToast("Failed to fetch admin requests", "error");
+        setRequests([]);
+        setTotalCount(0);
+        setTotalPages(1);
+      } finally {
+        setIsLoading(false);
       }
-
-      if (selectedStatusFilter !== "All") {
-        params.set(
-          "status",
-          statusToApi(selectedStatusFilter as PendingRequest["status"]),
-        );
-      }
-
-      if (selectedCityFilter !== "All") {
-        params.set("city", selectedCityFilter);
-      }
-
-      const response = await fetch(`${API_URL}?${params.toString()}`, {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      });
-
-      const result: AdminRequestsResponse = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.success
-            ? "Failed to fetch requests"
-            : "Failed to fetch admin requests",
-        );
-      }
-
-      setRequests(result.data.map(normalizeRequest));
-      setCurrentPage(result.pagination?.page ?? page);
-      setTotalPages(result.pagination?.totalPages ?? 1);
-      setTotalCount(result.pagination?.total ?? result.data.length);
-    } catch (error) {
-      console.error("FETCH_ADMIN_REQUESTS_ERROR:", error);
-
-      showToast("Failed to fetch admin requests", "error");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    },
+    [
+      debouncedSearch,
+      selectedStatusFilter,
+      selectedCityFilter,
+      selectedDateFilter,
+    ],
+  );
 
   useEffect(() => {
     fetchRequests(1);
-  }, []);
+  }, [fetchRequests]);
+
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setSelectedStatusFilter("All");
+    setSelectedCityFilter("All");
+    setSelectedDateFilter("");
+  };
+
+  const hasActiveFilters =
+    Boolean(searchQuery.trim()) ||
+    selectedStatusFilter !== "All" ||
+    selectedCityFilter !== "All" ||
+    Boolean(selectedDateFilter);
 
   // Selected request for details view
   const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(
@@ -2002,17 +2035,72 @@ export default function PendingRequestsPage() {
               fontFamily: typography.fontFamily.sans,
             }}
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              title="Clear search"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                color: colors.text.muted,
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
+
+        {/* Clear / Reset Filters */}
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "6px 12px",
+              borderRadius: "8px",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: `1px solid ${colors.status.error}`,
+              background: "rgba(239, 68, 68, 0.08)",
+              color: colors.status.error,
+              transition: "all 0.15s ease",
+              fontFamily: typography.fontFamily.sans,
+              height: "36px",
+            }}
+          >
+            <X size={12} />
+            Clear Filters
+          </button>
+        )}
       </div>
 
       {/* DataTable */}
       <DataTable
         columns={columns}
-        data={filteredRequests}
+        data={requests}
         keyExtractor={(r) => r.id}
-        pageSize={5}
+        pageSize={PAGE_SIZE}
         isLoading={isLoading}
         emptyMessage="No admin requests found."
+        pagination={{
+          page: currentPage,
+          limit: PAGE_SIZE,
+          total: totalCount,
+          totalPages: totalPages,
+          onPageChange: (p) => {
+            setCurrentPage(p);
+            fetchRequests(p);
+          },
+        }}
       />
 
       {/* ── Add Request Modal ── */}
