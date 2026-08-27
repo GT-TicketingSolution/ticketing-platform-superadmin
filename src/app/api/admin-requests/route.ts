@@ -304,6 +304,8 @@ export async function GET(request: NextRequest) {
 
     const city = searchParams.get("city")?.trim() || undefined;
 
+    const createdAt = searchParams.get("createdAt") || undefined;
+
     /* ---------------------------------------------------------------------- */
     /* Pagination                                                             */
     /* ---------------------------------------------------------------------- */
@@ -380,6 +382,7 @@ export async function GET(request: NextRequest) {
       status,
       adminId,
       city,
+      createdAt,
     });
 
     /* ---------------------------------------------------------------------- */
@@ -608,10 +611,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    /* ---------------------------------------------------------------------- */
-    /* Authentication                                                         */
-    /* ---------------------------------------------------------------------- */
-
     const user = await getCurrentUser();
 
     if (!user) {
@@ -624,16 +623,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    /* ---------------------------------------------------------------------- */
-    /* Request Body                                                           */
-    /* ---------------------------------------------------------------------- */
-
     const body = await request.json();
 
     const adminId =
       typeof body.adminId === "string" && body.adminId.trim()
         ? body.adminId.trim()
         : null;
+
+    const fullName =
+      typeof body.fullName === "string"
+        ? body.fullName.trim()
+        : typeof body.name === "string"
+          ? body.name.trim()
+          : "";
+
+    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+
+    const email =
+      typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+
+    const city = typeof body.city === "string" ? body.city.trim() : "";
 
     const description =
       typeof body.description === "string"
@@ -645,15 +654,41 @@ export async function POST(request: NextRequest) {
     const internalNotes =
       typeof body.internalNotes === "string" ? body.internalNotes.trim() : null;
 
-    /* ---------------------------------------------------------------------- */
-    /* Validation                                                             */
-    /* ---------------------------------------------------------------------- */
-
-    if (!adminId) {
+    if (!fullName) {
       return NextResponse.json(
         {
           success: false,
-          message: "Admin ID is required",
+          message: "Admin name cannot be empty",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!phone) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Phone cannot be empty",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!email) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Email cannot be empty",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!city) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "City cannot be empty",
         },
         { status: 400 },
       );
@@ -669,47 +704,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    /* ---------------------------------------------------------------------- */
-    /* Find Admin                                                             */
-    /* ---------------------------------------------------------------------- */
+    let admin = null;
 
-    const admin = await findAdminForRequest({
-      adminId,
-    });
+    // If adminId is provided, verify that the admin exists.
+    if (adminId) {
+      admin = await findAdminForRequest({
+        adminId,
+      });
 
-    if (!admin) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Admin not found",
-        },
-        { status: 404 },
-      );
+      if (!admin) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Admin not found",
+          },
+          { status: 404 },
+        );
+      }
     }
-
-    /* ---------------------------------------------------------------------- */
-    /* Create Admin Request                                                   */
-    /* ---------------------------------------------------------------------- */
 
     const adminRequest = await createAdminRequest(
       {
-        adminId: admin.id,
+        adminId: admin?.id ?? null,
 
-        // Get Admin details from admins table
-        fullName: admin.fullName,
-        phone: admin.phone,
-        email: admin.email,
-        city: admin.city,
+        // If existing admin, use database values.
+        // Otherwise use details supplied in the request.
+        fullName: admin?.fullName ?? fullName,
+        phone: admin?.phone ?? phone,
+        email: admin?.email ?? email,
+        city: admin?.city ?? city,
 
         description,
         internalNotes,
       },
       user.id,
     );
-
-    /* ---------------------------------------------------------------------- */
-    /* Creation Failed                                                        */
-    /* ---------------------------------------------------------------------- */
 
     if (!adminRequest) {
       return NextResponse.json(
@@ -720,10 +749,6 @@ export async function POST(request: NextRequest) {
         { status: 500 },
       );
     }
-
-    /* ---------------------------------------------------------------------- */
-    /* Response                                                               */
-    /* ---------------------------------------------------------------------- */
 
     return NextResponse.json(
       {

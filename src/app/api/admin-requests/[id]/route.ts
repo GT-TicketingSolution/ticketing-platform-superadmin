@@ -465,6 +465,7 @@ import {
   getAdminRequestById,
   updateAdminRequest,
   deleteAdminRequest,
+  addAdminRequestNote,
 } from "@/server/admin-request/admin-request.service";
 
 import { getCurrentUser } from "@/server/auth/auth.service";
@@ -613,6 +614,27 @@ export async function PATCH(
     /* ---------------------------------------------------------------------- */
 
     const body = await request.json();
+
+    const note =
+      body.note !== undefined
+        ? body.note
+        : body.addNote !== undefined
+          ? body.addNote
+          : undefined;
+
+    if (note !== undefined) {
+      if (typeof note !== "string" || !note.trim()) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Note cannot be empty",
+          },
+          { status: 400 },
+        );
+      }
+
+      await addAdminRequestNote(id, note, user.id);
+    }
 
     const updateData: {
       description?: string;
@@ -790,7 +812,7 @@ export async function PATCH(
     /* Empty Update                                                           */
     /* ---------------------------------------------------------------------- */
 
-    if (Object.keys(updateData).length === 0) {
+    if (Object.keys(updateData).length === 0 && note === undefined) {
       return NextResponse.json(
         {
           success: false,
@@ -801,7 +823,31 @@ export async function PATCH(
     }
 
     /* ---------------------------------------------------------------------- */
-    /* Update                                                                 */
+    /* Add Note Only                                                          */
+    /* ---------------------------------------------------------------------- */
+
+    if (note !== undefined && Object.keys(updateData).length === 0) {
+      const createdNote = await addAdminRequestNote(id, note, user.id);
+
+      if (!createdNote) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Failed to add note",
+          },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Admin request note added successfully",
+        data: createdNote,
+      });
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* Update Request                                                         */
     /* ---------------------------------------------------------------------- */
 
     const updated = await updateAdminRequest(id, updateData, user.id);
@@ -816,13 +862,12 @@ export async function PATCH(
       );
     }
 
-    /* ---------------------------------------------------------------------- */
-    /* Response                                                               */
-    /* ---------------------------------------------------------------------- */
-
     return NextResponse.json({
       success: true,
-      message: "Admin request updated successfully",
+      message:
+        note !== undefined
+          ? "Admin request updated and note added successfully"
+          : "Admin request updated successfully",
       data: updated,
     });
   } catch (error) {
