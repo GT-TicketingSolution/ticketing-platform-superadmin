@@ -35,13 +35,11 @@ export async function proxy(request: NextRequest) {
    * Get session cookie.
    */
   const sessionToken = request.cookies.get(SESSION_COOKIE)?.value;
-
-  console.log(
-    "PROXY:",
+  console.log("PROXY:", {
     pathname,
-    "COOKIE:",
-    sessionToken ? "FOUND" : "NOT FOUND",
-  );
+    SESSION_COOKIE,
+    hasSessionToken: !!sessionToken,
+  });
 
   /*
    * No cookie = not authenticated.

@@ -248,6 +248,19 @@ function AdminPageContent() {
   >([]);
   const [isSavingModules, setIsSavingModules] = useState(false);
 
+  const [assignedModules, setAssignedModules] = useState<
+    {
+      accessId: string;
+      moduleId: string;
+      key: string;
+      name: string;
+      description: string | null;
+      isActive: boolean;
+      sortOrder: number;
+      grantedAt: string;
+    }[]
+  >([]);
+
   // Modals / View state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedAdmin, setSelectedAdmin] = useState<AdminUser | null>(null);
@@ -264,18 +277,22 @@ function AdminPageContent() {
         setIsLoadingAdmins(true);
 
         const params = new URLSearchParams();
+
         params.set("page", String(page));
         params.set("limit", String(PAGE_SIZE));
 
         if (debouncedSearch.trim()) {
           params.set("search", debouncedSearch.trim());
         }
+
         if (selectedCityFilter !== "All" && selectedCityFilter.trim()) {
           params.set("city", selectedCityFilter.trim());
         }
+
         if (selectedDateFilter.trim()) {
           params.set("joinedDate", selectedDateFilter.trim());
         }
+
         if (selectedStatusFilter !== "All") {
           params.set("status", selectedStatusFilter.toUpperCase());
         }
@@ -299,6 +316,7 @@ function AdminPageContent() {
         }
 
         const rawData = result.data;
+
         const apiAdmins: ApiAdmin[] = Array.isArray(rawData)
           ? rawData
           : Array.isArray(rawData?.data)
@@ -391,23 +409,21 @@ function AdminPageContent() {
 
       const modules = Array.isArray(result.data) ? result.data : [];
 
-      // These are ONLY the modules currently assigned
+      // IMPORTANT:
+      // This is what the Assigned Module Access Roles section uses.
+      setAssignedModules(modules);
+
+      // IDs used by the edit checkboxes
       const moduleIds = modules.map(
         (module: { moduleId: string }) => module.moduleId,
       );
 
-      // Store assigned modules
       setOriginalModules(moduleIds);
       setSelectedModules(moduleIds);
-
-      // IMPORTANT:
-      // DO NOT call setAvailableModules() here.
-      //
-      // availableModules must come from /api/modules,
-      // because that API returns ALL available modules.
     } catch (error) {
       console.error("FETCH_ADMIN_MODULES_ERROR:", error);
 
+      setAssignedModules([]);
       setOriginalModules([]);
       setSelectedModules([]);
 
@@ -696,14 +712,43 @@ function AdminPageContent() {
 
       const updatedAdmin = mapApiAdminToAdminUser(result.data);
 
+      // Fetch latest modules
+      const modulesResponse = await fetch(
+        `/api/admins/${selectedAdmin.id}/modules`,
+      );
+
+      const modulesResult = await modulesResponse.json();
+
+      if (!modulesResponse.ok || !modulesResult.success) {
+        throw new Error(
+          modulesResult.message || "Failed to fetch updated modules",
+        );
+      }
+
+      const rolesAccess = modulesResult.data.map(
+        (module: { name: string }) => module.name,
+      );
+
+      const moduleIds = modulesResult.data.map(
+        (module: { moduleId: string }) => module.moduleId,
+      );
+
+      const adminWithModules = {
+        ...updatedAdmin,
+        rolesAccess,
+      };
+
       setAdmins((prev) =>
         prev.map((admin) =>
-          admin.id === updatedAdmin.id ? updatedAdmin : admin,
+          admin.id === adminWithModules.id ? adminWithModules : admin,
         ),
       );
 
-      setSelectedAdmin(updatedAdmin);
-      setOriginalAdmin(updatedAdmin);
+      setSelectedAdmin(adminWithModules);
+      setOriginalAdmin(adminWithModules);
+
+      setSelectedModules(moduleIds);
+      setOriginalModules(moduleIds);
       setIsEditing(false);
 
       showToast(
@@ -1111,7 +1156,8 @@ function AdminPageContent() {
                 {selectedAdmin.businessName
                   ? `${selectedAdmin.businessName} • `
                   : ""}
-                {selectedAdmin.city} • {selectedAdmin.subDomain || "No subdomain"}
+                {selectedAdmin.city} •{" "}
+                {selectedAdmin.subDomain || "No subdomain"}
               </p>
             </div>
           </div>
@@ -1394,8 +1440,7 @@ function AdminPageContent() {
             >
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Renewal Amount (₹){" "}
-                  <span style={{ color: "#EF4444" }}>*</span>
+                  Renewal Amount (₹) <span style={{ color: "#EF4444" }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -1483,7 +1528,10 @@ function AdminPageContent() {
                   onClick={() =>
                     setSelectedAdmin({
                       ...selectedAdmin,
-                      status: selectedAdmin.status === "Active" ? "Inactive" : "Active",
+                      status:
+                        selectedAdmin.status === "Active"
+                          ? "Inactive"
+                          : "Active",
                     })
                   }
                   style={{
@@ -1503,8 +1551,7 @@ function AdminPageContent() {
                     style={{
                       position: "absolute",
                       top: "3px",
-                      left:
-                        selectedAdmin.status === "Active" ? "25px" : "3px",
+                      left: selectedAdmin.status === "Active" ? "25px" : "3px",
                       width: "20px",
                       height: "20px",
                       borderRadius: "50%",
@@ -1578,11 +1625,28 @@ function AdminPageContent() {
                         selectedModules.includes(m.id),
                       )
                     }
+                    // onChange={(e) => {
+                    //   setSelectedModules(
+                    //     e.target.checked
+                    //       ? availableModules.map((m) => m.id)
+                    //       : [],
+                    //   );
+                    // }}
                     onChange={(e) => {
                       setSelectedModules(
                         e.target.checked
-                          ? availableModules.map((m) => m.id)
-                          : [],
+                          ? [
+                              ...new Set([
+                                ...originalModules,
+                                ...availableModules.map((m) => m.id),
+                              ]),
+                            ]
+                          : originalModules.filter(
+                              (moduleId) =>
+                                !availableModules.some(
+                                  (m) => m.id === moduleId,
+                                ),
+                            ),
                       );
                     }}
                     style={{
@@ -2549,7 +2613,6 @@ function AdminPageContent() {
                 />
                 <FieldError message={errors.name?.message} />
               </div>
-
 
               <div
                 style={{
