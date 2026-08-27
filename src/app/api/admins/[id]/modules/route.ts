@@ -295,7 +295,6 @@ export async function POST(
     /* -------------------------------------------------------------------- */
     /* Grant Default + Permission Module                                    */
     /* -------------------------------------------------------------------- */
-
     const access = await grantAdminModules(id, [moduleId], user.id);
 
     return NextResponse.json(
@@ -306,8 +305,18 @@ export async function POST(
       },
       { status: 201 },
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("GRANT_ADMIN_MODULE_ERROR:", error);
+
+    if (error?.code === "23505") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Admin already has access to this module",
+        },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json(
       {

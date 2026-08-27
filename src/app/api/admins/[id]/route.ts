@@ -247,6 +247,32 @@ export async function PATCH(
     }
 
     /* ---------------------------------------------------------------------- */
+    /* Module Access Roles                                                    */
+    /* ---------------------------------------------------------------------- */
+
+    /* ---------------------------------------------------------------------- */
+    /* Module Access Roles                                                    */
+    /* ---------------------------------------------------------------------- */
+
+    if (body.moduleIds !== undefined) {
+      if (
+        !Array.isArray(body.moduleIds) ||
+        !body.moduleIds.every(
+          (moduleId) =>
+            typeof moduleId === "string" && moduleId.trim().length > 0,
+        )
+      ) {
+        return errorResponse(
+          "moduleIds must be an array of non-empty strings",
+          400,
+        );
+      }
+
+      updateData.moduleIds = [
+        ...new Set(body.moduleIds.map((moduleId) => moduleId.trim())),
+      ];
+    }
+    /* ---------------------------------------------------------------------- */
     /* Renewal Amount                                                          */
     /* ---------------------------------------------------------------------- */
 
