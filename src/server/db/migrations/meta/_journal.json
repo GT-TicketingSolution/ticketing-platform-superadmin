@@ -50,6 +50,13 @@
       "when": 1787659098014,
       "tag": "0006_charming_yellow_claw",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787810537927,
+      "tag": "0007_lame_pretty_boy",
+      "breakpoints": true
     }
   ]
 }
