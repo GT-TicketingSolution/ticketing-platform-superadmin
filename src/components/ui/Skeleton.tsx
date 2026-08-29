@@ -345,3 +345,51 @@ export function NotificationsSkeleton() {
     </div>
   );
 }
+
+/* ─── Notes History skeleton */
+export function SkeletonNotesHistory({ count = 5 }: { count?: number }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "10px" }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+            padding: "12px 16px",
+            background: "#FFFFFF",
+            border: "1px solid #E5E7EB",
+            borderRadius: "10px",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+          }}
+        >
+          {/* Left side skeleton */}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              minWidth: 0,
+            }}
+          >
+            <SkeletonBox width={i % 2 === 0 ? "75%" : "90%"} height="15px" borderRadius="4px" />
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <SkeletonBox width="65px" height="13px" borderRadius="4px" />
+              <SkeletonBox width="110px" height="12px" borderRadius="4px" />
+            </div>
+          </div>
+
+          {/* Right side buttons skeleton */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+            <SkeletonBox width="54px" height="28px" borderRadius="6px" />
+            <SkeletonBox width="62px" height="28px" borderRadius="6px" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+

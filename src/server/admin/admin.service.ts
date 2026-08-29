@@ -1,7 +1,12 @@
 import { and, count, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
 
 import { db } from "@/server/db";
-import { admins, renewals } from "@/server/db/schema";
+import {
+  admins,
+  renewals,
+  adminModuleAccess,
+  modules,
+} from "@/server/db/schema";
 import { createAuditLog } from "@/server/audit/audit.service";
 import { createRenewal } from "@/server/renewal/renewal.service";
 
@@ -19,6 +24,7 @@ export type CreateAdminInput = {
   renewalAmount: number;
   joinedAt?: Date;
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  moduleIds?: string[];
 };
 
 export type UpdateAdminInput = {
@@ -32,6 +38,7 @@ export type UpdateAdminInput = {
   joinedAt?: Date;
   nextRenewalDate?: Date;
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  moduleIds?: string[];
 };
 
 export type GetAdminsInput = {
@@ -258,13 +265,45 @@ export async function getAdminById(id: string) {
     return null;
   }
 
+  const moduleAccess = await db
+    .select({
+      moduleId: adminModuleAccess.moduleId,
+    })
+    .from(adminModuleAccess)
+    .where(eq(adminModuleAccess.adminId, id));
+
   return {
     ...admin,
+    moduleIds: moduleAccess.map((access) => access.moduleId),
     nextRenewalDate:
       admin.nextRenewalDate ?? calculateNextRenewalDate(admin.joinedAt),
   };
 }
 
+async function validateModuleIds(moduleIds: string[]) {
+  if (moduleIds.length === 0) {
+    return;
+  }
+
+  const uniqueModuleIds = [...new Set(moduleIds)];
+
+  const existingModules = await db
+    .select({
+      id: modules.id,
+    })
+    .from(modules)
+    .where(or(...uniqueModuleIds.map((moduleId) => eq(modules.id, moduleId))));
+
+  const existingIds = new Set(existingModules.map((module) => module.id));
+
+  const invalidIds = uniqueModuleIds.filter(
+    (moduleId) => !existingIds.has(moduleId),
+  );
+
+  if (invalidIds.length > 0) {
+    throw new Error(`Invalid module IDs: ${invalidIds.join(", ")}`);
+  }
+}
 /* -------------------------------------------------------------------------- */
 /* Create Admin                                                               */
 /* -------------------------------------------------------------------------- */
@@ -314,6 +353,10 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
     throw new Error("Invalid renewal amount");
   }
 
+  if (data.moduleIds !== undefined) {
+    await validateModuleIds(data.moduleIds);
+  }
+
   /* ------------------------------------------------------------------------ */
   /* Dates                                                                    */
   /* ------------------------------------------------------------------------ */
@@ -348,6 +391,15 @@ export async function createAdmin(data: CreateAdminInput, actorId: string) {
 
   if (!admin) {
     return null;
+  }
+
+  if (data.moduleIds !== undefined && data.moduleIds.length > 0) {
+    await db.insert(adminModuleAccess).values(
+      data.moduleIds.map((moduleId) => ({
+        adminId: admin.id,
+        moduleId,
+      })),
+    );
   }
 
   /* ------------------------------------------------------------------------ */
@@ -579,6 +631,23 @@ export async function updateAdmin(
 
   if (!admin) {
     throw new Error("Admin not found");
+  }
+
+  if (data.moduleIds !== undefined) {
+    await validateModuleIds(data.moduleIds);
+
+    await db
+      .delete(adminModuleAccess)
+      .where(eq(adminModuleAccess.adminId, admin.id));
+
+    if (data.moduleIds.length > 0) {
+      await db.insert(adminModuleAccess).values(
+        data.moduleIds.map((moduleId) => ({
+          adminId: admin.id,
+          moduleId,
+        })),
+      );
+    }
   }
 
   /* ------------------------------------------------------------------------ */
