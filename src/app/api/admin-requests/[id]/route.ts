@@ -473,7 +473,6 @@ import { getCurrentUser } from "@/server/auth/auth.service";
 /* -------------------------------------------------------------------------- */
 /* GET /api/admin-requests/[id]                                               */
 /* -------------------------------------------------------------------------- */
-
 export async function GET(
   _request: NextRequest,
   {
@@ -483,10 +482,7 @@ export async function GET(
   },
 ) {
   try {
-    /* ---------------------------------------------------------------------- */
-    /* Authentication                                                         */
-    /* ---------------------------------------------------------------------- */
-
+    // Authentication
     const user = await getCurrentUser();
 
     if (!user) {
@@ -499,10 +495,7 @@ export async function GET(
       );
     }
 
-    /* ---------------------------------------------------------------------- */
-    /* Params                                                                 */
-    /* ---------------------------------------------------------------------- */
-
+    // Params
     const { id } = await params;
 
     if (!id) {
@@ -515,10 +508,7 @@ export async function GET(
       );
     }
 
-    /* ---------------------------------------------------------------------- */
-    /* Fetch                                                                  */
-    /* ---------------------------------------------------------------------- */
-
+    // Fetch request
     const adminRequest = await getAdminRequestById(id);
 
     if (!adminRequest) {
@@ -531,6 +521,7 @@ export async function GET(
       );
     }
 
+    // Response includes notes and notesHistory
     return NextResponse.json({
       success: true,
       data: adminRequest,
