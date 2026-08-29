@@ -49,9 +49,11 @@ body {
 aside::-webkit-scrollbar {
   width: 4px;
 }
+
 aside::-webkit-scrollbar-track {
   background: transparent;
 }
+
 aside::-webkit-scrollbar-thumb {
   background: #2372A5;
   border-radius: 4px;
@@ -74,3 +76,40 @@ a {
 .notify-minimal-message {
   text-transform: none;
 }
+
+/* ── Notes History chat bubble animation  */
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Notes History scrollbar (thin, WhatsApp-style)*/
+.notes-scroll-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.notes-scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.notes-scroll-container::-webkit-scrollbar-thumb {
+  background: #2372A5;
+  border-radius: 4px;
+  opacity: 0.5;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

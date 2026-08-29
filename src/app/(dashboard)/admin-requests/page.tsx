@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -26,6 +27,8 @@ import {
   Calendar,
   Building2,
   MessageSquare,
+  ArrowUp,
+  Loader2,
 } from "lucide-react";
 import { colors, typography } from "@/lib/theme";
 import { PendingRequest } from "@/types/superadmin";
@@ -34,6 +37,7 @@ import { confirmDelete } from "@/lib/notify";
 import { addRequestSchema, AddRequestFormData } from "./schema";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { META_CONSTANTS } from "@/lib/metaConstant";
+import { SkeletonNotesHistory, AdminRequestsSkeleton } from "@/components/ui/Skeleton";
 
 //  Field-level error helper
 function FieldError({ message }: { message?: string }) {
@@ -65,6 +69,40 @@ const parseNote = (raw: string) => {
   return { time: "", text: raw };
 };
 
+export interface NoteHistoryItem {
+  id: string;
+  note: string;
+  createdAt: string;
+  actorId?: string | null;
+  actorName?: string | null;
+}
+
+export type ExtendedPendingRequest = PendingRequest & {
+  requestNumber?: string;
+  notesHistory?: NoteHistoryItem[];
+};
+
+// Formatter for note timestamps (handles ISO strings and formatted dates)
+const formatNoteDate = (rawDate: string | undefined) => {
+  if (!rawDate) return "";
+  try {
+    const d = new Date(rawDate);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    }
+  } catch {
+    // fallback
+  }
+  return rawDate;
+};
+
 // Styled input helper
 const inputStyle = (hasError: boolean): React.CSSProperties => ({
   width: "100%",
@@ -89,6 +127,8 @@ type ApiAdminRequest = {
   city: string;
   description: string;
   internalNotes: string | null;
+  notes?: string | NoteHistoryItem[] | null;
+  notesHistory?: NoteHistoryItem[];
   status: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REJECTED" | "CANCELLED";
   createdAt: string;
   updatedAt: string;
@@ -126,34 +166,42 @@ const statusToApi = (status: PendingRequest["status"]) => {
 };
 
 const normalizeRequest = (
-  request: ApiAdminRequest | {
-    id: string;
-    requestNumber?: string;
-    adminId?: string | null;
-    fullName?: string;
-    name?: string;
-    phone: string;
-    email: string;
-    city: string;
-    description?: string;
-    desc?: string;
-    internalNotes?: string | null;
-    notes?: string | null;
-    status:
-      | "PENDING"
-      | "IN_PROGRESS"
-      | "ACCEPTED"
-      | "REJECTED"
-      | "CANCELLED"
-      | "Pending"
-      | "In-progress"
-      | "Accepted"
-      | "Rejected"
-      | "Canceled";
-    createdAt?: string;
-    updatedAt?: string;
-  },
-): PendingRequest => {
+  request:
+    | ApiAdminRequest
+    | {
+        id: string;
+        requestNumber?: string;
+        adminId?: string | null;
+        fullName?: string;
+        name?: string;
+        requestName?: string;
+        phone?: string;
+        requestPhone?: string;
+        email?: string;
+        requestEmail?: string;
+        city?: string;
+        requestCity?: string;
+        description?: string;
+        desc?: string;
+        internalNotes?: string | null;
+        notes?: string | NoteHistoryItem[] | null;
+        notesHistory?: NoteHistoryItem[];
+        status:
+          | "PENDING"
+          | "IN_PROGRESS"
+          | "ACCEPTED"
+          | "REJECTED"
+          | "CANCELLED"
+          | "Pending"
+          | "In-progress"
+          | "Accepted"
+          | "Rejected"
+          | "Canceled";
+        createdAt?: string;
+        updatedAt?: string;
+        createdDate?: string;
+      },
+): ExtendedPendingRequest => {
   let status: PendingRequest["status"];
 
   switch (request.status) {
@@ -174,6 +222,8 @@ const normalizeRequest = (
 
     case "CANCELLED":
     case "Canceled":
+    case "REJECTED":
+    case "Rejected":
       status = "Canceled";
       break;
 
@@ -185,40 +235,67 @@ const normalizeRequest = (
   const name =
     (request as { fullName?: string }).fullName ??
     (request as { name?: string }).name ??
+    (request as { requestName?: string }).requestName ??
     "";
   const desc =
     (request as { description?: string }).description ??
     (request as { desc?: string }).desc ??
     "";
-  const notes =
+  const rawNotes =
     (request as { internalNotes?: string | null }).internalNotes ??
-    (request as { notes?: string | null }).notes ??
+    (request as { notes?: string | NoteHistoryItem[] | null }).notes ??
     "";
+
+  const notesStr = typeof rawNotes === "string" ? rawNotes : "";
+
+  let notesHistory: NoteHistoryItem[] = [];
+  if (Array.isArray((request as { notesHistory?: NoteHistoryItem[] }).notesHistory)) {
+    notesHistory = (request as { notesHistory: NoteHistoryItem[] }).notesHistory;
+  } else if (Array.isArray(rawNotes)) {
+    notesHistory = rawNotes;
+  }
+
+  const rawPhone = (request as { phone?: string }).phone ?? (request as { requestPhone?: string }).requestPhone ?? "";
+  const rawEmail = (request as { email?: string }).email ?? (request as { requestEmail?: string }).requestEmail ?? "";
+  const rawCity = (request as { city?: string }).city ?? (request as { requestCity?: string }).requestCity ?? "";
+  const rawCreatedAt = (request as { createdAt?: string }).createdAt ?? "";
+  const createdDate =
+    (request as { createdDate?: string }).createdDate ??
+    (rawCreatedAt ? (typeof rawCreatedAt === "string" ? rawCreatedAt.slice(0, 10) : "") : "");
 
   return {
     id: request.id,
+    requestNumber: (request as { requestNumber?: string }).requestNumber ?? "",
     name,
-    phone: request.phone ?? "",
-    email: request.email ?? "",
+    phone: rawPhone,
+    email: rawEmail,
     desc,
-    notes: notes ?? "",
+    notes: notesStr,
+    notesHistory,
     status,
-    city: request.city ?? "",
-    createdDate: request.createdAt ?? "",
+    city: rawCity,
+    createdDate,
   };
 };
 
-export default function PendingRequestsPage() {
+function PendingRequestsPageContent() {
+  const searchParams = useSearchParams();
+  const rawStatus = searchParams.get("status");
+  const initialStatus = rawStatus
+    ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase()
+    : "All";
+
   const { showToast } = useToast();
-  const [requests, setRequests] = useState<PendingRequest[]>([]);
+  const [requests, setRequests] = useState<ExtendedPendingRequest[]>([]);
   const [originalRequest, setOriginalRequest] =
-    useState<PendingRequest | null>(null);
+    useState<ExtendedPendingRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") || "");
   const debouncedSearch = useDebounce(searchQuery, 400);
   const [selectedStatusFilter, setSelectedStatusFilter] =
-    useState<string>("All");
+    useState<string>(initialStatus);
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
 
@@ -228,24 +305,26 @@ export default function PendingRequestsPage() {
   const [totalCount, setTotalCount] = useState(0);
   const PAGE_SIZE = 5;
 
-  // Read URL query parameter + set page title
+  // Set page title & sync state when searchParams change
   useEffect(() => {
     document.title = META_CONSTANTS.pendingRequests.fullTitle;
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const statusParam = params.get("status");
-      if (statusParam) {
-        setSelectedStatusFilter(statusParam);
-      }
-      const searchParam = params.get("search");
-      if (searchParam) {
-        setSearchQuery(searchParam);
-      }
-    }
   }, []);
+
+  useEffect(() => {
+    const statusParam = searchParams.get("status");
+    if (statusParam) {
+      const s = statusParam.charAt(0).toUpperCase() + statusParam.slice(1).toLowerCase();
+      setSelectedStatusFilter(s);
+    } else {
+      setSelectedStatusFilter("All");
+    }
+  }, [searchParams]);
+
+  const fetchRequestIdRef = useRef(0);
 
   const fetchRequests = useCallback(
     async (page = 1) => {
+      const requestId = ++fetchRequestIdRef.current;
       try {
         setIsLoading(true);
 
@@ -281,6 +360,10 @@ export default function PendingRequestsPage() {
 
         const result: AdminRequestsResponse = await response.json();
 
+        if (requestId !== fetchRequestIdRef.current) {
+          return;
+        }
+
         if (!response.ok || !result.success) {
           throw new Error(
             result.message || "Failed to fetch admin requests",
@@ -295,15 +378,21 @@ export default function PendingRequestsPage() {
         setCurrentPage(result.pagination?.page ?? page);
         setTotalPages(result.pagination?.totalPages ?? 1);
         setTotalCount(result.pagination?.total ?? apiData.length);
-      } catch (error) {
-        console.error("FETCH_ADMIN_REQUESTS_ERROR:", error);
-
-        showToast("Failed to fetch admin requests", "error");
+      } catch (err) {
+        if (requestId !== fetchRequestIdRef.current) return;
+        showToast(
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch admin requests",
+          "error",
+        );
         setRequests([]);
         setTotalCount(0);
         setTotalPages(1);
       } finally {
-        setIsLoading(false);
+        if (requestId === fetchRequestIdRef.current) {
+          setIsLoading(false);
+        }
       }
     },
     [
@@ -311,6 +400,7 @@ export default function PendingRequestsPage() {
       selectedStatusFilter,
       selectedCityFilter,
       selectedDateFilter,
+      showToast,
     ],
   );
 
@@ -318,11 +408,27 @@ export default function PendingRequestsPage() {
     fetchRequests(1);
   }, [fetchRequests]);
 
+  const handleStatusFilterChange = (newStatus: string) => {
+    setSelectedStatusFilter(newStatus);
+    if (typeof window !== "undefined") {
+      if (newStatus === "All") {
+        window.history.replaceState(null, "", window.location.pathname);
+      } else {
+        const url = new URL(window.location.href);
+        url.searchParams.set("status", newStatus);
+        window.history.replaceState(null, "", url.toString());
+      }
+    }
+  };
+
   const handleResetFilters = () => {
     setSearchQuery("");
     setSelectedStatusFilter("All");
     setSelectedCityFilter("All");
     setSelectedDateFilter("");
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   };
 
   const hasActiveFilters =
@@ -331,20 +437,80 @@ export default function PendingRequestsPage() {
     selectedCityFilter !== "All" ||
     Boolean(selectedDateFilter);
 
-  // Selected request for details view
-  const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(
-    null,
-  );
+  const [selectedRequest, setSelectedRequest] =
+    useState<ExtendedPendingRequest | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [newNoteInput, setNewNoteInput] = useState("");
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [isUpdatingNote, setIsUpdatingNote] = useState(false);
+  const [noteActionLoadingIndex, setNoteActionLoadingIndex] = useState<number | null>(null);
+  const [noteActionType, setNoteActionType] = useState<"edit" | "delete" | null>(null);
   const [editingNoteIndex, setEditingNoteIndex] = useState<number | null>(null);
   const [editingNoteText, setEditingNoteText] = useState<string>("");
+  const notesContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
-  // Helper to persist updated internal notes (full replacement) directly to backend
+  // Fetch full details for a single request (including notes & notesHistory)
+  const fetchRequestById = useCallback(
+    async (id: string) => {
+      try {
+        setIsDetailLoading(true);
+        const response = await fetch(`${API_URL}/${id}`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        const result = await response.json();
+
+        if (response.status === 401) {
+          showToast("Please login to continue", "error");
+          return null;
+        }
+
+        if (response.status === 404) {
+          showToast("Admin request not found", "error");
+          return null;
+        }
+
+        if (!response.ok || !result.success || !result.data) {
+          throw new Error(result.message || "Failed to fetch request details");
+        }
+
+        const normalized = normalizeRequest(result.data);
+        setSelectedRequest(normalized);
+        setOriginalRequest({ ...normalized });
+
+        // Auto-scroll to bottom of notes history (like WhatsApp)
+        setTimeout(() => {
+          if (notesContainerRef.current) {
+            notesContainerRef.current.scrollTo({
+              top: notesContainerRef.current.scrollHeight,
+              behavior: "smooth",
+            });
+          }
+        }, 150);
+
+        return normalized;
+      } catch (err) {
+        console.error("FETCH_REQUEST_BY_ID_ERROR:", err);
+        showToast(
+          err instanceof Error ? err.message : "Failed to load request details",
+          "error",
+        );
+        return null;
+      } finally {
+        setIsDetailLoading(false);
+      }
+    },
+    [showToast],
+  );
+
+  // Helper to persist updated internal notes directly to backend
   const saveNotesToApi = async (updatedNotes: string) => {
     if (!selectedRequest) return false;
     try {
-      setIsSaving(true);
+      setIsUpdatingNote(true);
       const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -354,17 +520,28 @@ export default function PendingRequestsPage() {
         }),
       });
       const result = await response.json();
+
+      if (response.status === 401) {
+        showToast("Please login to continue", "error");
+        return false;
+      }
+
+      if (response.status === 400) {
+        showToast(result.message || "Invalid request", "error");
+        return false;
+      }
+
+      if (response.status === 404) {
+        showToast("Admin request not found", "error");
+        return false;
+      }
+
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Failed to update notes");
       }
-      const updatedReq = { ...selectedRequest, notes: updatedNotes };
-      setSelectedRequest(updatedReq);
-      setRequests((prev) =>
-        prev.map((r) => (r.id === selectedRequest.id ? updatedReq : r)),
-      );
 
-      // Re-fetch fresh table list from backend
-      fetchRequests();
+      await fetchRequestById(selectedRequest.id);
+      fetchRequests(currentPage);
 
       return true;
     } catch (err) {
@@ -374,15 +551,15 @@ export default function PendingRequestsPage() {
       );
       return false;
     } finally {
-      setIsSaving(false);
+      setIsUpdatingNote(false);
     }
   };
 
-  // Add a new note using the `note` field (API appends with timestamp server-side)
+  // Add a new note using the `note` field via PATCH /api/admin-requests/:id
   const handleAddDetailNote = async () => {
-    if (!newNoteInput.trim() || !selectedRequest) return;
+    if (!newNoteInput.trim() || !selectedRequest || isAddingNote) return;
     try {
-      setIsSaving(true);
+      setIsAddingNote(true);
       const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -391,21 +568,53 @@ export default function PendingRequestsPage() {
           note: newNoteInput.trim(),
         }),
       });
+
       const result = await response.json();
+
+      if (response.status === 401) {
+        showToast("Please login to continue", "error");
+        return;
+      }
+
+      if (response.status === 400) {
+        showToast(result.message || "Note cannot be empty", "error");
+        return;
+      }
+
+      if (response.status === 404) {
+        showToast("Admin request not found", "error");
+        return;
+      }
+
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Failed to add note");
       }
+
       setNewNoteInput("");
-      showToast("Note added successfully!", "success");
-      // Re-fetch to get the updated notes list from backend
-      fetchRequests();
+      showToast(result.message || "Admin request note added successfully", "success");
+
+      // Re-fetch full details to get updated notes & notesHistory
+      await fetchRequestById(selectedRequest.id);
+
+      // Refresh table list
+      fetchRequests(currentPage);
+
+      // Auto-scroll to bottom of notes history (like WhatsApp)
+      setTimeout(() => {
+        if (notesContainerRef.current) {
+          notesContainerRef.current.scrollTo({
+            top: notesContainerRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }
+      }, 200);
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Failed to add note",
         "error",
       );
     } finally {
-      setIsSaving(false);
+      setIsAddingNote(false);
     }
   };
 
@@ -417,36 +626,81 @@ export default function PendingRequestsPage() {
 
   // Save an edited note
   const handleSaveEditedNote = async (idx: number, origTime: string) => {
-    if (!selectedRequest || !editingNoteText.trim()) return;
-    const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
-    const updatedLine = origTime
-      ? `[${origTime}] ${editingNoteText.trim()}`
-      : editingNoteText.trim();
-    noteLines[idx] = updatedLine;
-    const updatedNotes = noteLines.join("\n");
+    if (!selectedRequest || !editingNoteText.trim() || isUpdatingNote) return;
 
-    const success = await saveNotesToApi(updatedNotes);
-    if (success) {
-      setEditingNoteIndex(null);
-      setEditingNoteText("");
-      showToast("Note updated successfully!", "success");
+    let updatedNotes = "";
+    if (selectedRequest.notesHistory && selectedRequest.notesHistory.length > 0) {
+      const sorted = [...selectedRequest.notesHistory].sort((a, b) => {
+        const tA = new Date(a.createdAt).getTime() || 0;
+        const tB = new Date(b.createdAt).getTime() || 0;
+        return tA - tB;
+      });
+      sorted[idx] = {
+        ...sorted[idx],
+        note: editingNoteText.trim(),
+      };
+      updatedNotes = sorted
+        .map((item) => (item.createdAt ? `[${formatNoteDate(item.createdAt)}] ${item.note}` : item.note))
+        .join("\n");
+    } else {
+      const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
+      const updatedLine = origTime
+        ? `[${origTime}] ${editingNoteText.trim()}`
+        : editingNoteText.trim();
+      noteLines[idx] = updatedLine;
+      updatedNotes = noteLines.join("\n");
+    }
+
+    try {
+      setNoteActionLoadingIndex(idx);
+      setNoteActionType("edit");
+      const success = await saveNotesToApi(updatedNotes);
+      if (success) {
+        setEditingNoteIndex(null);
+        setEditingNoteText("");
+        showToast("Note updated successfully!", "success");
+      }
+    } finally {
+      setNoteActionLoadingIndex(null);
+      setNoteActionType(null);
     }
   };
 
   // Delete a specific note
   const handleDeleteNote = async (idx: number) => {
-    if (!selectedRequest) return;
-    const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
-    noteLines.splice(idx, 1);
-    const updatedNotes = noteLines.join("\n");
+    if (!selectedRequest || isUpdatingNote) return;
 
-    const success = await saveNotesToApi(updatedNotes);
-    if (success) {
-      if (editingNoteIndex === idx) {
-        setEditingNoteIndex(null);
-        setEditingNoteText("");
+    let updatedNotes = "";
+    if (selectedRequest.notesHistory && selectedRequest.notesHistory.length > 0) {
+      const sorted = [...selectedRequest.notesHistory].sort((a, b) => {
+        const tA = new Date(a.createdAt).getTime() || 0;
+        const tB = new Date(b.createdAt).getTime() || 0;
+        return tA - tB;
+      });
+      sorted.splice(idx, 1);
+      updatedNotes = sorted
+        .map((item) => (item.createdAt ? `[${formatNoteDate(item.createdAt)}] ${item.note}` : item.note))
+        .join("\n");
+    } else {
+      const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
+      noteLines.splice(idx, 1);
+      updatedNotes = noteLines.join("\n");
+    }
+
+    try {
+      setNoteActionLoadingIndex(idx);
+      setNoteActionType("delete");
+      const success = await saveNotesToApi(updatedNotes);
+      if (success) {
+        if (editingNoteIndex === idx) {
+          setEditingNoteIndex(null);
+          setEditingNoteText("");
+        }
+        showToast("Note deleted successfully!", "info");
       }
-      showToast("Note deleted successfully!", "info");
+    } finally {
+      setNoteActionLoadingIndex(null);
+      setNoteActionType(null);
     }
   };
 
@@ -804,6 +1058,7 @@ export default function PendingRequestsPage() {
             setSelectedRequest(req);
             setOriginalRequest({ ...req });
             setIsEditing(false);
+            fetchRequestById(req.id);
           }}
           style={{
             display: "inline-flex",
@@ -1475,284 +1730,475 @@ export default function PendingRequestsPage() {
                 gap: "14px",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  paddingBottom: "12px",
-                  borderBottom: `1px solid ${colors.header.border}`,
-                }}
-              >
-                <StickyNote size={18} color={colors.brand.accent} />
-                <h3
-                  style={{
-                    fontSize: "15px",
-                    margin: 0,
-                    fontWeight: 700,
-                    fontFamily: typography.fontFamily.sans,
-                    color: colors.text.primary,
-                  }}
-                >
-                  Notes History
-                </h3>
-              </div>
+              {/* Header */}
+              {(() => {
+                // Combine notesHistory and string notes
+                const hasNotesHistory =
+                  Array.isArray(selectedRequest.notesHistory) &&
+                  selectedRequest.notesHistory.length > 0;
+                const stringNotesList = selectedRequest.notes
+                  ? selectedRequest.notes.split("\n").filter(Boolean)
+                  : [];
 
-              {/* Notes list */}
-              <div
-                style={{
-                  maxHeight: "220px",
-                  overflowY: "auto",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0",
-                  border: `1px solid ${colors.header.border}`,
-                  borderRadius: "10px",
-                  background: "#FAFAFA",
-                }}
-              >
-                {selectedRequest.notes ? (
-                  selectedRequest.notes
-                    .split("\n")
-                    .filter(Boolean)
-                    .map((note, idx) => {
-                      const { time, text } = parseNote(note);
-                      const isEditingThisNote = editingNoteIndex === idx;
+                const totalNotesCount = hasNotesHistory
+                  ? selectedRequest.notesHistory!.length
+                  : stringNotesList.length;
 
-                      return (
-                        <div
-                          key={idx}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: "12px",
-                            padding: "10px 14px",
-                            borderBottom:
-                              idx <
-                              selectedRequest.notes
-                                .split("\n")
-                                .filter(Boolean).length -
-                                1
-                                ? `1px solid ${colors.header.border}`
-                                : "none",
-                            background: isEditingThisNote
-                              ? "rgba(35, 114, 165, 0.05)"
-                              : "transparent",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: "10px",
-                              flex: 1,
-                            }}
-                          >
-                            <div
-                              style={{
-                                flexShrink: 0,
-                                marginTop: "2px",
-                                color: colors.brand.accent,
-                              }}
-                            >
-                              <MessageSquare
-                                size={16}
-                                color={colors.brand.accent}
-                              />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              {isEditingThisNote ? (
-                                <input
-                                  type="text"
-                                  value={editingNoteText}
-                                  onChange={(e) =>
-                                    setEditingNoteText(e.target.value)
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      handleSaveEditedNote(idx, time);
-                                    } else if (e.key === "Escape") {
-                                      setEditingNoteIndex(null);
-                                      setEditingNoteText("");
-                                    }
-                                  }}
-                                  autoFocus
-                                  style={{
-                                    width: "100%",
-                                    height: "32px",
-                                    border: `1.5px solid ${colors.brand.accent}`,
-                                    borderRadius: "6px",
-                                    padding: "0 10px",
-                                    fontSize: "13px",
-                                    fontFamily: typography.fontFamily.sans,
-                                    outline: "none",
-                                    background: "#FFFFFF",
-                                  }}
-                                />
-                              ) : (
-                                <>
-                                  <div
-                                    style={{
-                                      fontSize: "14px",
-                                      color: colors.text.primary,
-                                      fontWeight: 500,
-                                      fontFamily: typography.fontFamily.sans,
-                                      lineHeight: "1.4",
-                                      wordBreak: "break-word",
-                                    }}
-                                  >
-                                    {text}
-                                  </div>
-                                  {time && (
-                                    <div
-                                      style={{
-                                        fontSize: "12px",
-                                        color: colors.text.muted,
-                                        marginTop: "2px",
-                                        fontFamily: typography.fontFamily.sans,
-                                      }}
-                                    >
-                                      {time}
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Action Buttons: Edit and Delete */}
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "6px",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {isEditingThisNote ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleSaveEditedNote(idx, time)
-                                  }
-                                  title="Save note"
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    width: "28px",
-                                    height: "28px",
-                                    borderRadius: "6px",
-                                    border: "none",
-                                    background: colors.brand.primary,
-                                    color: colors.sidebar.activeText,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <Check size={14} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingNoteIndex(null);
-                                    setEditingNoteText("");
-                                  }}
-                                  title="Cancel edit"
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    width: "28px",
-                                    height: "28px",
-                                    borderRadius: "6px",
-                                    border: `1px solid ${colors.login.inputBorder}`,
-                                    background: "#FFFFFF",
-                                    color: colors.text.muted,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <X size={14} />
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleStartEditNote(idx, text)
-                                  }
-                                  title="Edit note"
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    width: "28px",
-                                    height: "28px",
-                                    borderRadius: "6px",
-                                    border: "none",
-                                    background: "rgba(35, 114, 165, 0.1)",
-                                    color: colors.brand.accent,
-                                    cursor: "pointer",
-                                    transition: "background 0.15s",
-                                  }}
-                                >
-                                  <Edit2 size={13} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteNote(idx)}
-                                  title="Delete note"
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    width: "28px",
-                                    height: "28px",
-                                    borderRadius: "6px",
-                                    border: "none",
-                                    background: "rgba(239, 68, 68, 0.1)",
-                                    color: colors.status.error,
-                                    cursor: "pointer",
-                                    transition: "background 0.15s",
-                                  }}
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                ) : (
+                return (
                   <div
                     style={{
-                      padding: "16px",
-                      textAlign: "center",
-                      fontSize: "13px",
-                      color: colors.text.muted,
-                      fontFamily: typography.fontFamily.sans,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      paddingBottom: "12px",
+                      borderBottom: `1px solid ${colors.header.border}`,
                     }}
                   >
-                    No internal notes added for this request.
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <StickyNote size={18} color={colors.brand.accent} />
+                      <h3
+                        style={{
+                          fontSize: "15px",
+                          margin: 0,
+                          fontWeight: 700,
+                          fontFamily: typography.fontFamily.sans,
+                          color: colors.text.primary,
+                        }}
+                      >
+                        Notes History
+                      </h3>
+                    </div>
+                    {totalNotesCount > 0 && (
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          color: colors.brand.accent,
+                          fontFamily: typography.fontFamily.sans,
+                          background: "rgba(35,114,165,0.08)",
+                          padding: "2px 10px",
+                          borderRadius: "12px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {totalNotesCount} note{totalNotesCount !== 1 ? "s" : ""}
+                      </span>
+                    )}
                   </div>
+                );
+              })()}
+
+              {/* Notes scrollable list — shows ~10 items viewport, auto-scrolls to bottom like WhatsApp */}
+              <div style={{ position: "relative" }}>
+                <div
+                  ref={notesContainerRef}
+                  className="notes-scroll-container"
+                  onScroll={() => {
+                    if (notesContainerRef.current) {
+                      setShowScrollTop(notesContainerRef.current.scrollTop > 60);
+                    }
+                  }}
+                  style={{
+                    height: "420px",
+                    overflowY: "auto",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0",
+                    border: `1px solid ${colors.header.border}`,
+                    borderRadius: "12px",
+                    background: "#F7F8FA",
+                    scrollBehavior: "smooth",
+                  }}
+                >
+                  {isDetailLoading ? (
+                    <SkeletonNotesHistory count={4} />
+                  ) : (
+                    (() => {
+                      const hasNotesHistory =
+                        Array.isArray(selectedRequest.notesHistory) &&
+                        selectedRequest.notesHistory.length > 0;
+
+                    let notesToRender: {
+                      id: string;
+                      text: string;
+                      time: string;
+                      actorName?: string | null;
+                      rawIndex: number;
+                    }[] = [];
+
+                    if (hasNotesHistory) {
+                      // Sort oldest to newest (WhatsApp chronological order: latest at bottom)
+                      notesToRender = [...selectedRequest.notesHistory!]
+                        .sort((a, b) => {
+                          const tA = new Date(a.createdAt).getTime() || 0;
+                          const tB = new Date(b.createdAt).getTime() || 0;
+                          return tA - tB;
+                        })
+                        .map((item, idx) => ({
+                          id: item.id || `hist-${idx}`,
+                          text: item.note,
+                          time: formatNoteDate(item.createdAt),
+                          actorName: item.actorName,
+                          rawIndex: idx,
+                        }));
+                    } else if (selectedRequest.notes) {
+                      const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
+                      notesToRender = noteLines.map((note, idx) => {
+                        const { time, text } = parseNote(note);
+                        return {
+                          id: `str-${idx}`,
+                          text,
+                          time: formatNoteDate(time) || time,
+                          actorName: undefined,
+                          rawIndex: idx,
+                        };
+                      });
+                    }
+
+                    if (notesToRender.length === 0) {
+                      return (
+                        <div
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexDirection: "column",
+                            gap: "10px",
+                            color: colors.text.muted,
+                            fontFamily: typography.fontFamily.sans,
+                            fontSize: "13px",
+                          }}
+                        >
+                          <MessageSquare size={32} color={colors.header.border} />
+                          No internal notes added for this request.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <>
+                        {/* Spacer so note lists push to bottom */}
+                        <div style={{ flex: 1 }} />
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "10px" }}>
+                          {notesToRender.map((noteItem, idx) => {
+                            const isEditingThisNote = editingNoteIndex === noteItem.rawIndex;
+                            const isThisNoteSaving =
+                              noteActionLoadingIndex === noteItem.rawIndex &&
+                              noteActionType === "edit";
+                            const isThisNoteDeleting =
+                              noteActionLoadingIndex === noteItem.rawIndex &&
+                              noteActionType === "delete";
+
+                            return (
+                              <div
+                                key={noteItem.id || idx}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: "16px",
+                                  padding: "12px 16px",
+                                  background: isEditingThisNote
+                                    ? "rgba(35, 114, 165, 0.05)"
+                                    : "#FFFFFF",
+                                  border: isEditingThisNote
+                                    ? `1.5px solid ${colors.brand.accent}`
+                                    : `1px solid ${colors.header.border}`,
+                                  borderRadius: "10px",
+                                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                                  animation: "fadeSlideIn 0.2s ease",
+                                  transition: "all 0.15s ease",
+                                  opacity: isThisNoteDeleting ? 0.5 : 1,
+                                }}
+                              >
+                                {/* Left Side: Note Content, Author & Timestamp */}
+                                <div
+                                  style={{
+                                    flex: 1,
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "4px",
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  {isEditingThisNote ? (
+                                    <input
+                                      type="text"
+                                      value={editingNoteText}
+                                      onChange={(e) => setEditingNoteText(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          handleSaveEditedNote(noteItem.rawIndex, noteItem.time);
+                                        } else if (e.key === "Escape") {
+                                          setEditingNoteIndex(null);
+                                          setEditingNoteText("");
+                                        }
+                                      }}
+                                      disabled={isUpdatingNote}
+                                      autoFocus
+                                      style={{
+                                        width: "100%",
+                                        height: "34px",
+                                        border: `1.5px solid ${colors.brand.accent}`,
+                                        borderRadius: "6px",
+                                        padding: "0 10px",
+                                        fontSize: "14px",
+                                        fontFamily: typography.fontFamily.sans,
+                                        outline: "none",
+                                        background: "#FFFFFF",
+                                      }}
+                                    />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        fontSize: "14px",
+                                        color: colors.text.primary,
+                                        fontWeight: 500,
+                                        fontFamily: typography.fontFamily.sans,
+                                        lineHeight: "1.5",
+                                        wordBreak: "break-word",
+                                      }}
+                                    >
+                                      {noteItem.text}
+                                    </div>
+                                  )}
+
+                                  {/* Left sub-row: Timestamp & Author */}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px",
+                                      fontSize: "12px",
+                                      color: colors.text.muted,
+                                      fontFamily: typography.fontFamily.sans,
+                                      marginTop: "2px",
+                                    }}
+                                  >
+                                    {noteItem.actorName && (
+                                      <span
+                                        style={{
+                                          fontWeight: 600,
+                                          color: colors.brand.accent,
+                                          background: "rgba(35, 114, 165, 0.08)",
+                                          padding: "1px 6px",
+                                          borderRadius: "4px",
+                                          fontSize: "11px",
+                                        }}
+                                      >
+                                        {noteItem.actorName}
+                                      </span>
+                                    )}
+                                    {noteItem.time && (
+                                      <span>
+                                        {noteItem.time}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Right Side: Actions (Edit & Delete or Save & Cancel) */}
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {isEditingThisNote ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={isUpdatingNote}
+                                        onClick={() => handleSaveEditedNote(noteItem.rawIndex, noteItem.time)}
+                                        title="Save note"
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          gap: "5px",
+                                          height: "30px",
+                                          padding: "0 10px",
+                                          borderRadius: "6px",
+                                          border: "none",
+                                          background: colors.brand.primary,
+                                          color: colors.sidebar.activeText,
+                                          fontSize: "12px",
+                                          fontWeight: 700,
+                                          cursor: isUpdatingNote ? "not-allowed" : "pointer",
+                                          fontFamily: typography.fontFamily.sans,
+                                          opacity: isThisNoteSaving ? 0.8 : isUpdatingNote ? 0.5 : 1,
+                                        }}
+                                      >
+                                        {isThisNoteSaving ? (
+                                          <Loader2
+                                            size={13}
+                                            style={{ animation: "spin 1s linear infinite" }}
+                                          />
+                                        ) : (
+                                          <Check size={14} />
+                                        )}
+                                        <span>{isThisNoteSaving ? "Saving…" : "Save"}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isUpdatingNote}
+                                        onClick={() => {
+                                          setEditingNoteIndex(null);
+                                          setEditingNoteText("");
+                                        }}
+                                        title="Cancel edit"
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          gap: "4px",
+                                          height: "30px",
+                                          padding: "0 10px",
+                                          borderRadius: "6px",
+                                          border: `1px solid ${colors.login.inputBorder}`,
+                                          background: "#FFFFFF",
+                                          color: colors.text.muted,
+                                          fontSize: "12px",
+                                          fontWeight: 600,
+                                          cursor: isUpdatingNote ? "not-allowed" : "pointer",
+                                          fontFamily: typography.fontFamily.sans,
+                                        }}
+                                      >
+                                        <X size={14} />
+                                        <span>Cancel</span>
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={isUpdatingNote}
+                                        onClick={() => handleStartEditNote(noteItem.rawIndex, noteItem.text)}
+                                        title="Edit note"
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          gap: "4px",
+                                          height: "28px",
+                                          padding: "0 9px",
+                                          borderRadius: "6px",
+                                          border: `1px solid rgba(35, 114, 165, 0.25)`,
+                                          background: "rgba(35, 114, 165, 0.08)",
+                                          color: colors.brand.accent,
+                                          fontSize: "12px",
+                                          fontWeight: 600,
+                                          cursor: isUpdatingNote ? "not-allowed" : "pointer",
+                                          fontFamily: typography.fontFamily.sans,
+                                          transition: "background 0.15s",
+                                          opacity: isUpdatingNote ? 0.5 : 1,
+                                        }}
+                                      >
+                                        <Edit2 size={12} />
+                                        <span>Edit</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isUpdatingNote}
+                                        onClick={() => handleDeleteNote(noteItem.rawIndex)}
+                                        title="Delete note"
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          gap: "5px",
+                                          height: "28px",
+                                          padding: "0 9px",
+                                          borderRadius: "6px",
+                                          border: `1px solid rgba(239, 68, 68, 0.25)`,
+                                          background: "rgba(239, 68, 68, 0.08)",
+                                          color: colors.status.error,
+                                          fontSize: "12px",
+                                          fontWeight: 600,
+                                          cursor: isUpdatingNote ? "not-allowed" : "pointer",
+                                          fontFamily: typography.fontFamily.sans,
+                                          transition: "background 0.15s",
+                                          opacity: isThisNoteDeleting ? 0.8 : isUpdatingNote ? 0.5 : 1,
+                                        }}
+                                      >
+                                        {isThisNoteDeleting ? (
+                                          <Loader2
+                                            size={12}
+                                            style={{ animation: "spin 1s linear infinite" }}
+                                          />
+                                        ) : (
+                                          <Trash2 size={12} />
+                                        )}
+                                        <span>{isThisNoteDeleting ? "Deleting…" : "Delete"}</span>
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()
+                )}
+                </div>
+
+                {/* Scroll to Top floating button — appears after scrolling down */}
+                {showScrollTop && (
+                  <button
+                    type="button"
+                    title="Scroll to top"
+                    onClick={() => {
+                      if (notesContainerRef.current) {
+                        notesContainerRef.current.scrollTo({
+                          top: 0,
+                          behavior: "smooth",
+                        });
+                      }
+                    }}
+                    style={{
+                      position: "absolute",
+                      bottom: "12px",
+                      right: "12px",
+                      width: "34px",
+                      height: "34px",
+                      borderRadius: "50%",
+                      border: "none",
+                      background: colors.brand.accent,
+                      color: "#FFFFFF",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 14px rgba(35,114,165,0.35)",
+                      transition: "opacity 0.2s, transform 0.2s",
+                      zIndex: 10,
+                    }}
+                  >
+                    <ArrowUp size={16} />
+                  </button>
                 )}
               </div>
 
-              {/* Add note input */}
+              {/* Add note input bar */}
               <div
                 style={{
                   display: "flex",
                   gap: "10px",
                   alignItems: "center",
+                  background: "#F7F8FA",
+                  border: `1.5px solid ${colors.login.inputBorder}`,
+                  borderRadius: "12px",
+                  padding: "6px 6px 6px 14px",
                 }}
               >
                 <input
                   type="text"
-                  placeholder="Add a note..."
+                  placeholder="Type a note and press Enter or click Add…"
                   value={newNoteInput}
                   onChange={(e) => setNewNoteInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -1761,40 +2207,46 @@ export default function PendingRequestsPage() {
                       handleAddDetailNote();
                     }
                   }}
+                  disabled={isAddingNote}
                   style={{
                     flex: 1,
-                    height: "40px",
-                    border: `1.5px solid ${colors.login.inputBorder}`,
-                    borderRadius: "8px",
-                    padding: "0 14px",
-                    fontSize: "14px",
+                    height: "36px",
+                    border: "none",
                     outline: "none",
+                    fontSize: "14px",
                     fontFamily: typography.fontFamily.sans,
-                    background: "#FFFFFF",
+                    background: "transparent",
+                    color: isAddingNote ? colors.text.muted : colors.text.primary,
                   }}
                 />
                 <button
                   type="button"
                   onClick={handleAddDetailNote}
+                  disabled={isAddingNote || !newNoteInput.trim()}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "6px",
-                    height: "40px",
+                    height: "36px",
                     padding: "0 18px",
                     borderRadius: "8px",
-                    background: colors.brand.primary,
+                    background:
+                      isAddingNote || !newNoteInput.trim()
+                        ? "rgba(244, 188, 67, 0.4)"
+                        : colors.brand.primary,
                     color: colors.sidebar.activeText,
                     border: "none",
                     fontSize: "13px",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    cursor: isAddingNote || !newNoteInput.trim() ? "not-allowed" : "pointer",
                     fontFamily: typography.fontFamily.sans,
                     flexShrink: 0,
-                    boxShadow: "0 2px 6px rgba(244, 188, 67, 0.3)",
+                    boxShadow: isAddingNote || !newNoteInput.trim() ? "none" : "0 2px 6px rgba(244, 188, 67, 0.35)",
+                    transition: "background 0.2s, box-shadow 0.2s",
+                    opacity: isAddingNote ? 0.6 : 1,
                   }}
                 >
-                  + Add
+                  {isAddingNote ? "Adding…" : "+ Add"}
                 </button>
               </div>
             </div>
@@ -1893,7 +2345,7 @@ export default function PendingRequestsPage() {
           </span>
           <select
             value={selectedStatusFilter}
-            onChange={(e) => setSelectedStatusFilter(e.target.value)}
+            onChange={(e) => handleStatusFilterChange(e.target.value)}
             style={{
               height: "36px",
               borderRadius: "8px",
@@ -2383,3 +2835,12 @@ export default function PendingRequestsPage() {
     </div>
   );
 }
+
+export default function PendingRequestsPage() {
+  return (
+    <Suspense fallback={<AdminRequestsSkeleton />}>
+      <PendingRequestsPageContent />
+    </Suspense>
+  );
+}
+

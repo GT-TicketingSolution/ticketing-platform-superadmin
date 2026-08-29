@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -11,7 +12,6 @@ import {
   Edit2,
   Trash2,
   X,
-  Check,
   AlertCircle,
   ArrowLeft,
   Calendar,
@@ -32,6 +32,7 @@ import { confirmDelete } from "@/lib/notify";
 import { addAdminSchema, AddAdminFormData } from "./schema";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { META_CONSTANTS } from "@/lib/metaConstant";
+import { AdminPageSkeleton } from "@/components/ui/Skeleton";
 
 // ─── Field-level error helper ──────────────────────────────────────────────────
 function FieldError({ message }: { message?: string }) {
@@ -199,7 +200,11 @@ const mapApiAdminToAdminUser = (admin: ApiAdmin): AdminUser => {
   };
 };
 
-export default function AdminPage() {
+function AdminPageContent() {
+  const searchParams = useSearchParams();
+  const urlStatus = searchParams.get("status")?.toUpperCase();
+  const initialStatus = urlStatus === "ACTIVE" || urlStatus === "INACTIVE" ? urlStatus : "All";
+
   useEffect(() => {
     document.title = META_CONSTANTS.admin.fullTitle;
   }, []);
@@ -212,8 +217,17 @@ export default function AdminPage() {
   const debouncedSearch = useDebounce(searchQuery, 400);
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("All");
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
-  const [selectedStatusFilter, setSelectedStatusFilter] =
-    useState<string>("All");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>(initialStatus);
+
+  // Sync state reactively whenever searchParams change (e.g. user navigates from Dashboard card)
+  useEffect(() => {
+    const currentParam = searchParams.get("status")?.toUpperCase();
+    if (currentParam === "ACTIVE" || currentParam === "INACTIVE") {
+      setSelectedStatusFilter(currentParam);
+    } else if (!currentParam) {
+      setSelectedStatusFilter("All");
+    }
+  }, [searchParams]);
 
   // Server-side pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -253,21 +267,12 @@ export default function AdminPage() {
   const [originalAdmin, setOriginalAdmin] = useState<AdminUser | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
-  // ─── Fetch Admins ─────────────────────────────────────────────────────────────
-
-  const DEFAULT_MODULE_KEYS = [
-    "MANAGER_MANAGEMENT",
-    "STAFF_MANAGEMENT",
-    "ATTRACTION_MANAGEMENT",
-    "BOOKINGS",
-    "TRANSACTIONS",
-    "INVOICES",
-    "INVENTORY_AND_CAPACITY",
-    "REPORTS",
-  ];
+  // ─── Fetch Admins with Backend Query Filters ───────────────────────────────────
+  const fetchRequestIdRef = useRef(0);
 
   const fetchAdmins = useCallback(
     async (page = 1) => {
+      const requestId = ++fetchRequestIdRef.current;
       try {
         setIsLoadingAdmins(true);
 
@@ -302,6 +307,10 @@ export default function AdminPage() {
 
         const result = await response.json();
 
+        if (requestId !== fetchRequestIdRef.current) {
+          return; // Discard stale/out-of-order response
+        }
+
         if (!response.ok || !result.success) {
           throw new Error(result.message || "Failed to fetch admins");
         }
@@ -323,6 +332,7 @@ export default function AdminPage() {
         setHasNextPage(paginationInfo?.hasNextPage ?? false);
         setHasPreviousPage(paginationInfo?.hasPreviousPage ?? false);
       } catch (error) {
+        if (requestId !== fetchRequestIdRef.current) return;
         console.error("FETCH_ADMINS_ERROR:", error);
 
         showToast(
@@ -334,7 +344,9 @@ export default function AdminPage() {
         setTotalCount(0);
         setTotalPages(1);
       } finally {
-        setIsLoadingAdmins(false);
+        if (requestId === fetchRequestIdRef.current) {
+          setIsLoadingAdmins(false);
+        }
       }
     },
     [
@@ -348,6 +360,35 @@ export default function AdminPage() {
   useEffect(() => {
     fetchAdmins(1);
   }, [fetchAdmins]);
+
+  const handleStatusChange = (newStatus: string) => {
+    setSelectedStatusFilter(newStatus);
+    if (typeof window !== "undefined") {
+      if (newStatus === "All") {
+        window.history.replaceState(null, "", window.location.pathname);
+      } else {
+        const url = new URL(window.location.href);
+        url.searchParams.set("status", newStatus);
+        window.history.replaceState(null, "", url.toString());
+      }
+    }
+  };
+
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setSelectedStatusFilter("All");
+    setSelectedCityFilter("All");
+    setSelectedDateFilter("");
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  };
+
+  const hasActiveFilters =
+    Boolean(searchQuery.trim()) ||
+    selectedStatusFilter !== "All" ||
+    selectedCityFilter !== "All" ||
+    Boolean(selectedDateFilter);
 
   useEffect(() => {
     fetchAvailableModules();
@@ -964,9 +1005,9 @@ export default function AdminPage() {
             ]).then(([apiAdminData, modules]) => {
               const rolesAccess = Array.isArray(modules)
                 ? modules.map(
-                    (module: { moduleId: string; name: string; key: string }) =>
-                      module.name,
-                  )
+                  (module: { moduleId: string; name: string; key: string }) =>
+                    module.name,
+                )
                 : [];
               const moduleIds = Array.isArray(modules)
                 ? modules.map((module: { moduleId: string }) => module.moduleId)
@@ -2259,7 +2300,7 @@ export default function AdminPage() {
           </span>
           <select
             value={selectedStatusFilter}
-            onChange={(e) => setSelectedStatusFilter(e.target.value)}
+            onChange={(e) => handleStatusChange(e.target.value)}
             style={{
               height: "38px",
               borderRadius: "8px",
@@ -2428,6 +2469,33 @@ export default function AdminPage() {
             </button>
           )}
         </div>
+
+        {/* Clear Filters Button */}
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "8px 14px",
+              borderRadius: "20px",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: `1px solid ${colors.status.error}`,
+              background: "rgba(239, 68, 68, 0.08)",
+              color: colors.status.error,
+              transition: "all 0.15s ease",
+              fontFamily: typography.fontFamily.sans,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <X size={12} />
+            Clear Filters
+          </button>
+        )}
       </div>
 
       {/* ── Reusable DataTable UI (with S.No column & server-side pagination) ── */}
@@ -3094,3 +3162,12 @@ export default function AdminPage() {
     </div>
   );
 }
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={<AdminPageSkeleton />}>
+      <AdminPageContent />
+    </Suspense>
+  );
+}
+

@@ -133,20 +133,22 @@ export default function DashboardPage() {
 
       // Build query params for /api/dashboard
       const params = new URLSearchParams();
-      params.set("year", String(new Date().getFullYear()));
       if (selectedCity && selectedCity !== "All") params.set("city", selectedCity);
       if (fromDate && toDate) {
         params.set("from", fromDate);
         params.set("to", toDate);
       }
 
+      const dashboardQuery = params.toString();
+      const dashboardUrl = dashboardQuery ? `/api/dashboard?${dashboardQuery}` : "/api/dashboard";
+
       const [dashboardResponse, renewalsResponse] = await Promise.all([
-        fetch(`/api/dashboard?${params.toString()}`, {
+        fetch(dashboardUrl, {
           method: "GET",
           credentials: "include",
         }),
 
-        fetch("/api/dashboard/upcoming-renewals?days=365", {
+        fetch("/api/dashboard/upcoming-renewals", {
           method: "GET",
           credentials: "include",
         }),
@@ -731,9 +733,9 @@ export default function DashboardPage() {
           gap: "18px",
         }}
       >
-        {/* Card 1: Number of Admin (Clickable) */}
+        {/* Card 1: Active Admins (Clickable → /admin?status=ACTIVE) */}
         <Link
-          href="/admin"
+          href="/admin?status=ACTIVE"
           prefetch={true}
           style={{
             background: "#FFFFFF",
@@ -875,9 +877,9 @@ export default function DashboardPage() {
           </div>
         </Link>
 
-        {/* Card 3: Upcoming renewal (Clickable) */}
+        {/* Card 3: Upcoming Renewal (Clickable → /renewal?status=PENDING) */}
         <Link
-          href="/renewal"
+          href="/renewal?status=PENDING"
           prefetch={true}
           style={{
             background: "#FFFFFF",

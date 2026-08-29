@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Calendar,
   Building2,
@@ -19,6 +20,7 @@ import { confirmNotify } from "@/lib/notify";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { META_CONSTANTS } from "@/lib/metaConstant";
 import { useDebounce } from "@/hooks/useDebounce";
+import { RenewalSkeleton } from "@/components/ui/Skeleton";
 
 type ApiRenewal = {
   id: string;
@@ -62,29 +64,35 @@ type RenewalsApiResponse = {
   message?: string;
 };
 
-export default function RenewalPage() {
+function RenewalPageContent() {
+  const searchParams = useSearchParams();
+  const urlStatus = searchParams.get("status")?.toUpperCase();
+  const initialStatus =
+    urlStatus === "PENDING" || urlStatus === "PAID" || urlStatus === "CANCELLED"
+      ? urlStatus
+      : "All";
+
   useEffect(() => {
     document.title = META_CONSTANTS.renewal.fullTitle;
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const searchParam = params.get("search");
-      if (searchParam) {
-        setSearchQuery(searchParam);
-      }
-      const statusParam = params.get("status");
-      if (statusParam) {
-        setStatusFilter(statusParam.toUpperCase());
-      }
-    }
   }, []);
 
   const { showToast } = useToast();
   const [renewals, setRenewals] = useState<RenewalItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") || "");
   const debouncedSearch = useDebounce(searchQuery, 400);
-  const [statusFilter, setStatusFilter] = useState<string>("All");
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
+
+  // Sync state reactively whenever searchParams change (e.g. from Dashboard card)
+  useEffect(() => {
+    const currentParam = searchParams.get("status")?.toUpperCase();
+    if (currentParam === "PENDING" || currentParam === "PAID" || currentParam === "CANCELLED") {
+      setStatusFilter(currentParam);
+    } else if (!currentParam) {
+      setStatusFilter("All");
+    }
+  }, [searchParams]);
 
   // Server-side pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -94,8 +102,11 @@ export default function RenewalPage() {
   const [hasPreviousPage, setHasPreviousPage] = useState(false);
   const PAGE_SIZE = 5;
 
+  const fetchRequestIdRef = useRef(0);
+
   const fetchRenewals = useCallback(
     async (page = 1) => {
+      const requestId = ++fetchRequestIdRef.current;
       try {
         setIsLoading(true);
         setError(null);
@@ -119,6 +130,10 @@ export default function RenewalPage() {
         });
 
         const result: RenewalsApiResponse = await response.json();
+
+        if (requestId !== fetchRequestIdRef.current) {
+          return;
+        }
 
         if (!response.ok || !result.success) {
           throw new Error(result.message || "Failed to fetch renewals");
@@ -184,9 +199,25 @@ export default function RenewalPage() {
     fetchRenewals(1);
   }, [fetchRenewals]);
 
+  const handleStatusChange = (newStatus: string) => {
+    setStatusFilter(newStatus);
+    if (typeof window !== "undefined") {
+      if (newStatus === "All") {
+        window.history.replaceState(null, "", window.location.pathname);
+      } else {
+        const url = new URL(window.location.href);
+        url.searchParams.set("status", newStatus);
+        window.history.replaceState(null, "", url.toString());
+      }
+    }
+  };
+
   const handleResetFilters = () => {
     setSearchQuery("");
     setStatusFilter("All");
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   };
 
   const hasActiveFilters = Boolean(searchQuery.trim()) || statusFilter !== "All";
@@ -527,7 +558,7 @@ export default function RenewalPage() {
             return (
               <button
                 key={item.value}
-                onClick={() => setStatusFilter(item.value)}
+                onClick={() => handleStatusChange(item.value)}
                 style={{
                   padding: "6px 14px",
                   borderRadius: "20px",
@@ -600,3 +631,12 @@ export default function RenewalPage() {
     </div>
   );
 }
+
+export default function RenewalPage() {
+  return (
+    <Suspense fallback={<RenewalSkeleton />}>
+      <RenewalPageContent />
+    </Suspense>
+  );
+}
+
