@@ -651,8 +651,12 @@ export async function POST(request: NextRequest) {
           ? body.desc.trim()
           : "";
 
-    const internalNotes =
-      typeof body.internalNotes === "string" ? body.internalNotes.trim() : null;
+    const state = typeof body.state === "string" ? body.state.trim() : "";
+
+    // Optional first note-history entry. internalNotes / notes are accepted
+    // from older clients; the internal_notes column no longer exists.
+    const rawNote = body.note ?? body.internalNotes ?? body.notes;
+    const note = typeof rawNote === "string" ? rawNote.trim() : null;
 
     if (!fullName) {
       return NextResponse.json(
@@ -733,9 +737,10 @@ export async function POST(request: NextRequest) {
         phone: admin?.phone ?? phone,
         email: admin?.email ?? email,
         city: admin?.city ?? city,
+        state: state || null,
 
         description,
-        internalNotes,
+        note,
       },
       user.id,
     );

@@ -25,14 +25,16 @@ export type CreateAdminRequestInput = {
   phone: string;
   email: string;
   city?: string | null;
+  state?: string | null;
 
   description: string;
-  internalNotes?: string | null;
+
+  // Optional first entry for the request's note history
+  note?: string | null;
 };
 
 export type UpdateAdminRequestInput = {
   description?: string;
-  internalNotes?: string | null;
   status?: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REJECTED" | "CANCELLED";
 
   // Admin fields
@@ -40,6 +42,7 @@ export type UpdateAdminRequestInput = {
   phone?: string;
   email?: string;
   city?: string;
+  state?: string;
 
   note?: string;
 };
@@ -118,6 +121,7 @@ export async function getAdminRequests({
         ilike(adminRequests.phone, searchValue),
         ilike(adminRequests.email, searchValue),
         ilike(adminRequests.city, searchValue),
+        ilike(adminRequests.state, searchValue),
 
         // Existing Admin details, if linked
         ilike(admins.fullName, searchValue),
@@ -171,6 +175,7 @@ export async function getAdminRequests({
         requestPhone: adminRequests.phone,
         requestEmail: adminRequests.email,
         requestCity: adminRequests.city,
+        requestState: adminRequests.state,
 
         // Existing Admin details
         adminName: admins.fullName,
@@ -179,7 +184,6 @@ export async function getAdminRequests({
         adminCity: admins.city,
 
         description: adminRequests.description,
-        internalNotes: adminRequests.internalNotes,
         status: adminRequests.status,
 
         createdAt: adminRequests.createdAt,
@@ -215,9 +219,9 @@ export async function getAdminRequests({
     phone: request.adminPhone ?? request.requestPhone,
     email: request.adminEmail ?? request.requestEmail,
     city: request.adminCity ?? request.requestCity,
+    state: request.requestState,
 
     desc: request.description,
-    notes: request.internalNotes ?? "",
 
     status:
       request.status === "PENDING"
@@ -266,6 +270,7 @@ export async function getAdminRequestById(id: string) {
       requestPhone: adminRequests.phone,
       requestEmail: adminRequests.email,
       requestCity: adminRequests.city,
+      requestState: adminRequests.state,
 
       // Existing Admin details
       adminName: admins.fullName,
@@ -274,7 +279,6 @@ export async function getAdminRequestById(id: string) {
       adminCity: admins.city,
 
       description: adminRequests.description,
-      internalNotes: adminRequests.internalNotes,
       status: adminRequests.status,
 
       createdAt: adminRequests.createdAt,
@@ -302,9 +306,9 @@ export async function getAdminRequestById(id: string) {
     phone: request.adminPhone ?? request.requestPhone,
     email: request.adminEmail ?? request.requestEmail,
     city: request.adminCity ?? request.requestCity,
+    state: request.requestState,
 
     desc: request.description,
-    notes: request.internalNotes ?? "",
 
     notesHistory,
 
@@ -368,9 +372,9 @@ export async function createAdminRequest(
       phone: data.phone.trim(),
       email: data.email.trim().toLowerCase(),
       city: data.city?.trim() || null,
+      state: data.state?.trim() || null,
 
       description: data.description.trim(),
-      internalNotes: data.internalNotes?.trim() || null,
       status: "PENDING",
     })
     .returning();
@@ -379,6 +383,16 @@ export async function createAdminRequest(
 
   if (!request) {
     return null;
+  }
+
+  const initialNote = data.note?.trim();
+
+  if (initialNote) {
+    await db.insert(adminRequestNotes).values({
+      adminRequestId: request.id,
+      createdBy: actorId,
+      note: initialNote,
+    });
   }
 
   // Get existing Admin only when one exists
@@ -449,11 +463,6 @@ export async function updateAdminRequest(
     requestUpdateData.description = data.description.trim();
   }
 
-  if (data.internalNotes !== undefined) {
-    requestUpdateData.internalNotes =
-      data.internalNotes === null ? null : data.internalNotes.trim();
-  }
-
   if (data.status !== undefined) {
     requestUpdateData.status = data.status;
   }
@@ -481,6 +490,11 @@ export async function updateAdminRequest(
 
   if (data.city !== undefined) {
     requestUpdateData.city = data.city.trim();
+  }
+
+  // State is stored on the request only; the admins table has no state column.
+  if (data.state !== undefined) {
+    requestUpdateData.state = data.state.trim();
   }
 
   /* ---------------------------------------------------------------------- */
@@ -820,6 +834,54 @@ export async function addAdminRequestNote(
       note: trimmedNote,
     })
     .returning();
+
+  return result[0] ?? null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Update / Delete Request Note                                               */
+/* -------------------------------------------------------------------------- */
+
+// Both are scoped to the request so a note can only be changed through its own request.
+
+export async function updateAdminRequestNote(
+  adminRequestId: string,
+  noteId: string,
+  note: string,
+) {
+  const trimmedNote = note.trim();
+
+  if (!trimmedNote) {
+    throw new Error("Note cannot be empty");
+  }
+
+  const result = await db
+    .update(adminRequestNotes)
+    .set({ note: trimmedNote })
+    .where(
+      and(
+        eq(adminRequestNotes.id, noteId),
+        eq(adminRequestNotes.adminRequestId, adminRequestId),
+      ),
+    )
+    .returning();
+
+  return result[0] ?? null;
+}
+
+export async function deleteAdminRequestNote(
+  adminRequestId: string,
+  noteId: string,
+) {
+  const result = await db
+    .delete(adminRequestNotes)
+    .where(
+      and(
+        eq(adminRequestNotes.id, noteId),
+        eq(adminRequestNotes.adminRequestId, adminRequestId),
+      ),
+    )
+    .returning({ id: adminRequestNotes.id });
 
   return result[0] ?? null;
 }

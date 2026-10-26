@@ -125,8 +125,8 @@ type ApiAdminRequest = {
   phone: string;
   email: string;
   city: string;
+  state: string | null;
   description: string;
-  internalNotes: string | null;
   notes?: string | NoteHistoryItem[] | null;
   notesHistory?: NoteHistoryItem[];
   status: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REJECTED" | "CANCELLED";
@@ -183,7 +183,6 @@ const normalizeRequest = (
         requestCity?: string;
         description?: string;
         desc?: string;
-        internalNotes?: string | null;
         notes?: string | NoteHistoryItem[] | null;
         notesHistory?: NoteHistoryItem[];
         status:
@@ -231,7 +230,7 @@ const normalizeRequest = (
       status = "Pending";
   }
 
-  // Support both old (name/desc/notes) and new (fullName/description/internalNotes) field names
+  // Support both old (name/desc) and new (fullName/description) field names
   const name =
     (request as { fullName?: string }).fullName ??
     (request as { name?: string }).name ??
@@ -242,9 +241,7 @@ const normalizeRequest = (
     (request as { desc?: string }).desc ??
     "";
   const rawNotes =
-    (request as { internalNotes?: string | null }).internalNotes ??
-    (request as { notes?: string | NoteHistoryItem[] | null }).notes ??
-    "";
+    (request as { notes?: string | NoteHistoryItem[] | null }).notes ?? "";
 
   const notesStr = typeof rawNotes === "string" ? rawNotes : "";
 
@@ -277,6 +274,14 @@ const normalizeRequest = (
     createdDate,
   };
 };
+
+// Note history sorted oldest-first, matching the order rendered in the details panel.
+const getSortedNotesHistory = (request: ExtendedPendingRequest) =>
+  [...(request.notesHistory ?? [])].sort((a, b) => {
+    const tA = new Date(a.createdAt).getTime() || 0;
+    const tB = new Date(b.createdAt).getTime() || 0;
+    return tA - tB;
+  });
 
 function PendingRequestsPageContent() {
   const searchParams = useSearchParams();
@@ -506,18 +511,20 @@ function PendingRequestsPageContent() {
     [showToast],
   );
 
-  // Helper to persist updated internal notes directly to backend
-  const saveNotesToApi = async (updatedNotes: string) => {
+  // Edit or delete a single note-history entry via /api/admin-requests/:id/notes/:noteId
+  const sendNoteRequest = async (
+    noteId: string,
+    method: "PATCH" | "DELETE",
+    note?: string,
+  ) => {
     if (!selectedRequest) return false;
     try {
       setIsUpdatingNote(true);
-      const response = await fetch(`${API_URL}/${selectedRequest.id}`, {
-        method: "PATCH",
+      const response = await fetch(`${API_URL}/${selectedRequest.id}/notes/${noteId}`, {
+        method,
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          internalNotes: updatedNotes.trim() ? updatedNotes : null,
-        }),
+        body: method === "PATCH" ? JSON.stringify({ note }) : undefined,
       });
       const result = await response.json();
 
@@ -532,12 +539,12 @@ function PendingRequestsPageContent() {
       }
 
       if (response.status === 404) {
-        showToast("Admin request not found", "error");
+        showToast(result.message || "Note not found", "error");
         return false;
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to update notes");
+        throw new Error(result.message || "Failed to update note");
       }
 
       await fetchRequestById(selectedRequest.id);
@@ -625,36 +632,16 @@ function PendingRequestsPageContent() {
   };
 
   // Save an edited note
-  const handleSaveEditedNote = async (idx: number, origTime: string) => {
+  const handleSaveEditedNote = async (idx: number) => {
     if (!selectedRequest || !editingNoteText.trim() || isUpdatingNote) return;
 
-    let updatedNotes = "";
-    if (selectedRequest.notesHistory && selectedRequest.notesHistory.length > 0) {
-      const sorted = [...selectedRequest.notesHistory].sort((a, b) => {
-        const tA = new Date(a.createdAt).getTime() || 0;
-        const tB = new Date(b.createdAt).getTime() || 0;
-        return tA - tB;
-      });
-      sorted[idx] = {
-        ...sorted[idx],
-        note: editingNoteText.trim(),
-      };
-      updatedNotes = sorted
-        .map((item) => (item.createdAt ? `[${formatNoteDate(item.createdAt)}] ${item.note}` : item.note))
-        .join("\n");
-    } else {
-      const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
-      const updatedLine = origTime
-        ? `[${origTime}] ${editingNoteText.trim()}`
-        : editingNoteText.trim();
-      noteLines[idx] = updatedLine;
-      updatedNotes = noteLines.join("\n");
-    }
+    const noteItem = getSortedNotesHistory(selectedRequest)[idx];
+    if (!noteItem) return;
 
     try {
       setNoteActionLoadingIndex(idx);
       setNoteActionType("edit");
-      const success = await saveNotesToApi(updatedNotes);
+      const success = await sendNoteRequest(noteItem.id, "PATCH", editingNoteText.trim());
       if (success) {
         setEditingNoteIndex(null);
         setEditingNoteText("");
@@ -670,27 +657,13 @@ function PendingRequestsPageContent() {
   const handleDeleteNote = async (idx: number) => {
     if (!selectedRequest || isUpdatingNote) return;
 
-    let updatedNotes = "";
-    if (selectedRequest.notesHistory && selectedRequest.notesHistory.length > 0) {
-      const sorted = [...selectedRequest.notesHistory].sort((a, b) => {
-        const tA = new Date(a.createdAt).getTime() || 0;
-        const tB = new Date(b.createdAt).getTime() || 0;
-        return tA - tB;
-      });
-      sorted.splice(idx, 1);
-      updatedNotes = sorted
-        .map((item) => (item.createdAt ? `[${formatNoteDate(item.createdAt)}] ${item.note}` : item.note))
-        .join("\n");
-    } else {
-      const noteLines = selectedRequest.notes.split("\n").filter(Boolean);
-      noteLines.splice(idx, 1);
-      updatedNotes = noteLines.join("\n");
-    }
+    const noteItem = getSortedNotesHistory(selectedRequest)[idx];
+    if (!noteItem) return;
 
     try {
       setNoteActionLoadingIndex(idx);
       setNoteActionType("delete");
-      const success = await saveNotesToApi(updatedNotes);
+      const success = await sendNoteRequest(noteItem.id, "DELETE");
       if (success) {
         if (editingNoteIndex === idx) {
           setEditingNoteIndex(null);
@@ -790,7 +763,7 @@ function PendingRequestsPageContent() {
           email: data.email.trim().toLowerCase(),
           city: data.city || "Jaipur",
           description: data.desc.trim(),
-          internalNotes: data.notes?.trim() || null,
+          note: data.notes?.trim() || null,
         }),
       });
 
@@ -1929,7 +1902,7 @@ function PendingRequestsPageContent() {
                                       onKeyDown={(e) => {
                                         if (e.key === "Enter") {
                                           e.preventDefault();
-                                          handleSaveEditedNote(noteItem.rawIndex, noteItem.time);
+                                          handleSaveEditedNote(noteItem.rawIndex);
                                         } else if (e.key === "Escape") {
                                           setEditingNoteIndex(null);
                                           setEditingNoteText("");
@@ -2012,7 +1985,7 @@ function PendingRequestsPageContent() {
                                       <button
                                         type="button"
                                         disabled={isUpdatingNote}
-                                        onClick={() => handleSaveEditedNote(noteItem.rawIndex, noteItem.time)}
+                                        onClick={() => handleSaveEditedNote(noteItem.rawIndex)}
                                         title="Save note"
                                         style={{
                                           display: "inline-flex",

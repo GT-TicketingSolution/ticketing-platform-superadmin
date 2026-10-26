@@ -629,7 +629,6 @@ export async function PATCH(
 
     const updateData: {
       description?: string;
-      internalNotes?: string | null;
 
       status?:
         | "PENDING"
@@ -642,6 +641,7 @@ export async function PATCH(
       phone?: string;
       email?: string;
       city?: string;
+      state?: string;
     } = {};
 
     /* ---------------------------------------------------------------------- */
@@ -667,32 +667,6 @@ export async function PATCH(
       }
 
       updateData.description = description.trim();
-    }
-
-    /* ---------------------------------------------------------------------- */
-    /* Internal Notes                                                         */
-    /* ---------------------------------------------------------------------- */
-
-    // Supports:
-    // internalNotes: "..."
-    // notes: "..."
-
-    const internalNotes =
-      body.internalNotes !== undefined ? body.internalNotes : body.notes;
-
-    if (internalNotes !== undefined) {
-      if (internalNotes !== null && typeof internalNotes !== "string") {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Invalid internal notes",
-          },
-          { status: 400 },
-        );
-      }
-
-      updateData.internalNotes =
-        internalNotes === null ? null : internalNotes.trim();
     }
 
     /* ---------------------------------------------------------------------- */
@@ -767,6 +741,20 @@ export async function PATCH(
       }
 
       updateData.city = body.city.trim();
+    }
+
+    if (body.state !== undefined) {
+      if (typeof body.state !== "string" || !body.state.trim()) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "State cannot be empty",
+          },
+          { status: 400 },
+        );
+      }
+
+      updateData.state = body.state.trim();
     }
 
     /* ---------------------------------------------------------------------- */
