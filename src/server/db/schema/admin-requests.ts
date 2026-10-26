@@ -46,21 +46,23 @@ export const adminRequests = pgTable(
       length: 150,
     }),
 
-    phone: varchar("phone", {
-      length: 20,
-    }),
-
     email: varchar("email", {
       length: 255,
+    }),
+
+    phone: varchar("phone", {
+      length: 20,
     }),
 
     city: varchar("city", {
       length: 100,
     }),
 
-    description: text("description").notNull(),
+    state: varchar("state", {
+      length: 100,
+    }),
 
-    internalNotes: text("internal_notes"),
+    description: text("description").notNull(),
 
     status: adminRequestStatusEnum("status").default("PENDING").notNull(),
 

@@ -57,6 +57,13 @@
       "when": 1787810537927,
       "tag": "0007_lame_pretty_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793000324877,
+      "tag": "0008_admin_requests_add_state_drop_internal_notes",
+      "breakpoints": true
     }
   ]
 }
